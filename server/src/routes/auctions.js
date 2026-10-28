@@ -7,6 +7,11 @@ import { closeAuctionIfDue } from '../services/auctionLifecycle.js';
 
 const router = express.Router();
 
+// Helper to escape special characters for safe regular expression matching
+const escapeRegex = (string) => {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
 /**
  * @route   GET /api/auctions
  * @desc    Get all auctions with keyword search, categories, filters and sorting
@@ -28,9 +33,21 @@ router.get('/', async (req, res) => {
 
     const query = {};
 
-    // 1. Status filter (default to 'active' unless specified otherwise or 'all')
+    // 1. Status & Auction Eligibility
     if (status && status !== 'all') {
       query.status = status;
+      // When requesting active auctions, ensure deadline has not passed
+      if (status === 'active') {
+        const now = new Date();
+        if (closingSoon === 'true' || closingSoon === '1') {
+          query.closingAt = { $gt: now, $lte: new Date(Date.now() + 60 * 60 * 1000) };
+        } else {
+          query.closingAt = { $gt: now };
+        }
+      }
+    } else if (closingSoon === 'true' || closingSoon === '1') {
+      const now = new Date();
+      query.closingAt = { $gt: now, $lte: new Date(Date.now() + 60 * 60 * 1000) };
     }
 
     // 2. Category filter
@@ -48,15 +65,33 @@ router.get('/', async (req, res) => {
       query.seller = seller;
     }
 
-    // 5. Keyword search across title, description, and seller name
+    // 5. Flexible Multi-Keyword Search across title, description, category, and seller
     if (search && search.trim()) {
-      const regex = new RegExp(search.trim(), 'i');
-      query.$or = [
-        { title: regex },
-        { description: regex },
-        { sellerName: regex },
-        { pickupLocation: regex }
-      ];
+      const rawWords = search.trim().split(/\s+/).filter(Boolean);
+      const wordQueries = rawWords.map((rawWord) => {
+        const lower = rawWord.toLowerCase();
+        let pattern = escapeRegex(rawWord);
+        // Handle common English plurals (e.g., 'books' -> match 'books' or 'book'; 'cycles' -> match 'cycles' or 'cycle')
+        if (lower.endsWith('s') && !lower.endsWith('ss') && lower.length > 3) {
+          const singular = rawWord.slice(0, -1);
+          pattern = `(?:${escapeRegex(rawWord)}|${escapeRegex(singular)})`;
+        }
+        const wordRegex = new RegExp(pattern, 'i');
+        return {
+          $or: [
+            { title: wordRegex },
+            { description: wordRegex },
+            { category: wordRegex },
+            { sellerName: wordRegex },
+            { pickupLocation: wordRegex },
+            { condition: wordRegex }
+          ]
+        };
+      });
+
+      if (wordQueries.length > 0) {
+        query.$and = (query.$and || []).concat(wordQueries);
+      }
     }
 
     // 6. Price range filter
@@ -70,14 +105,7 @@ router.get('/', async (req, res) => {
       }
     }
 
-    // 7. Closing soon filter (< 1 hour remaining)
-    if (closingSoon === 'true' || closingSoon === '1') {
-      const now = new Date();
-      const oneHourAhead = new Date(Date.now() + 60 * 60 * 1000);
-      query.closingAt = { $lte: oneHourAhead, $gt: now };
-    }
-
-    // 8. Sorting logic
+    // 7. Sorting logic
     let sortOptions = { closingAt: 1 }; // Default: ending soonest
     if (sort === 'priceLow') {
       sortOptions = { currentPrice: 1 };

@@ -3,11 +3,6 @@ import User from '../models/User.js';
 
 export const seedInitialAuctionsIfEmpty = async () => {
   try {
-    const count = await Auction.countDocuments();
-    if (count > 0) return;
-
-    console.log('[Seeder] No auctions found in MongoDB. Seeding initial campus catalog...');
-
     // Find or create a default demo senior student seller
     let seller = await User.findOne({ email: 'rohan.sharma@campus.edu' });
     if (!seller) {
@@ -37,7 +32,7 @@ export const seedInitialAuctionsIfEmpty = async () => {
         sellerDepartment: seller.department,
         sellerRoll: seller.studentId,
         pickupLocation: 'Hostel 4 Ground Floor / Main Gate',
-        closingAt: new Date(Date.now() + 45 * 60 * 1000), // 45 minutes
+        closingAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // 5 days
         status: 'active',
         questions: [
           {
@@ -63,7 +58,7 @@ export const seedInitialAuctionsIfEmpty = async () => {
         sellerDepartment: seller.department,
         sellerRoll: seller.studentId,
         pickupLocation: 'Library Courtyard',
-        closingAt: new Date(Date.now() + 25 * 60 * 1000), // 25 minutes
+        closingAt: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000), // 6 days
         status: 'active',
         questions: []
       },
@@ -82,7 +77,7 @@ export const seedInitialAuctionsIfEmpty = async () => {
         sellerDepartment: seller.department,
         sellerRoll: seller.studentId,
         pickupLocation: 'Academic Complex Atrium',
-        closingAt: new Date(Date.now() + 48 * 60 * 60 * 1000), // 2 days
+        closingAt: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000), // 4 days
         status: 'active',
         questions: []
       },
@@ -101,7 +96,7 @@ export const seedInitialAuctionsIfEmpty = async () => {
         sellerDepartment: seller.department,
         sellerRoll: seller.studentId,
         pickupLocation: 'Hostel 4 Ground Floor',
-        closingAt: new Date(Date.now() + 35 * 60 * 1000), // 35 minutes
+        closingAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // 5 days
         status: 'active',
         questions: []
       },
@@ -120,7 +115,7 @@ export const seedInitialAuctionsIfEmpty = async () => {
         sellerDepartment: seller.department,
         sellerRoll: seller.studentId,
         pickupLocation: 'Hostel 8 Common Room',
-        closingAt: new Date(Date.now() + 72 * 60 * 60 * 1000), // 3 days
+        closingAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
         status: 'active',
         questions: []
       },
@@ -139,14 +134,24 @@ export const seedInitialAuctionsIfEmpty = async () => {
         sellerDepartment: seller.department,
         sellerRoll: seller.studentId,
         pickupLocation: 'CS Department Lab Corridor',
-        closingAt: new Date(Date.now() + 96 * 60 * 60 * 1000), // 4 days
+        closingAt: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000), // 6 days
         status: 'active',
         questions: []
       }
     ];
 
-    await Auction.insertMany(initialAuctions);
-    console.log(`[Seeder] Seeded ${initialAuctions.length} initial campus auctions into MongoDB.`);
+    for (const item of initialAuctions) {
+      const existing = await Auction.findOne({ title: item.title });
+      if (!existing) {
+        await Auction.create(item);
+      } else if (existing.bidsCount === 0 && (existing.status === 'unsold' || new Date(existing.closingAt).getTime() <= Date.now())) {
+        // Refresh unbidded expired demo items so developers and users have active listings across all categories
+        existing.status = 'active';
+        existing.closingAt = item.closingAt;
+        await existing.save();
+      }
+    }
+    console.log('[Seeder] Campus demo catalog verified and active in MongoDB.');
   } catch (err) {
     console.error('[Seeder] Error seeding auctions:', err.message);
   }

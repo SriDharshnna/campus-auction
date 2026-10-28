@@ -1,6 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Search, Flame, SlidersHorizontal, Sparkles, PlusCircle, AlertCircle } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Search, Flame, SlidersHorizontal, Sparkles, AlertCircle } from 'lucide-react';
 import { CATEGORIES } from '../mock/mockData';
 import { api } from '../services/api';
 import { socket } from '../services/socket';
@@ -11,67 +10,104 @@ import './Home.css';
 
 export default function Home() {
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('closingSoon');
   const [auctions, setAuctions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [searchTrigger, setSearchTrigger] = useState(0);
 
-  // Fetch real auctions from API with debounced search
-  useEffect(() => {
-    let isMounted = true;
-    const timer = setTimeout(async () => {
-      try {
-        setLoading(true);
-        setError('');
-        const params = {
-          sort: sortBy
-        };
-        if (selectedCategory && selectedCategory !== 'all') {
-          params.category = selectedCategory;
-        }
-        if (searchQuery.trim()) {
-          params.search = searchQuery.trim();
-        }
+  // Track latest active request to prevent race conditions / out-of-order response overwrites
+  const latestRequestIdRef = useRef(0);
 
-        const data = await api.getAuctions(params);
-        if (isMounted) {
-          setAuctions(data?.auctions || []);
-        }
-      } catch (err) {
-        console.error('Failed to load auctions:', err);
-        if (isMounted) {
-          setError(err.message || 'Failed to load active auctions. Please check your connection.');
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
+  // Fetch auctions with active filters, handling race conditions safely
+  const fetchAuctions = useCallback(async (keyword, category, sort) => {
+    const requestId = ++latestRequestIdRef.current;
+    try {
+      setLoading(true);
+      setError('');
+
+      const params = {
+        sort: sortBy
+      };
+
+      if (selectedCategory && selectedCategory !== 'all') {
+        params.category = selectedCategory;
       }
-    }, 250);
 
-    return () => {
-      isMounted = false;
-      clearTimeout(timer);
-    };
-  }, [selectedCategory, searchQuery, sortBy]);
+      if (searchQuery.trim()) {
+        params.search = searchQuery.trim();
+      }
+
+      const data = await api.getAuctions(params);
+
+      // Discard response if a newer search request was triggered while in flight
+      if (requestId === latestRequestIdRef.current) {
+        setAuctions(data?.auctions || []);
+      }
+    } catch (err) {
+      console.error('Failed to load auctions:', err);
+      if (requestId === latestRequestIdRef.current) {
+        setError(err.message || 'Failed to load active auctions. Please check your connection.');
+        setAuctions([]);
+      }
+    } finally {
+      if (requestId === latestRequestIdRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [searchQuery]);
+
+  // Execute fetch when filters, committed search query, or search trigger changes
+  useEffect(() => {
+    fetchAuctions(searchQuery, selectedCategory, sortBy);
+  }, [searchQuery, selectedCategory, sortBy, searchTrigger, fetchAuctions]);
+
+  // Submit search: clicking Search button or pressing Enter
+  const handleSearchSubmit = (e) => {
+    if (e) e.preventDefault();
+    const nextKeyword = searchInput.trim();
+    setSearchQuery(nextKeyword);
+    // Increment searchTrigger to ensure search always executes even if keyword did not change
+    setSearchTrigger((prev) => prev + 1);
+  };
+
+  // Clear search input and search all items
+  const handleClearSearch = () => {
+    setSearchInput('');
+    setSearchQuery('');
+    setSearchTrigger((prev) => prev + 1);
+  };
+
+  // Reset all filters, keyword, and sorting
+  const handleResetAllFilters = () => {
+    setSearchInput('');
+    setSearchQuery('');
+    setSelectedCategory('all');
+    setSortBy('closingSoon');
+    setSearchTrigger((prev) => prev + 1);
+  };
 
   // Real-time marketplace live price, bids and closing-time updates
   useEffect(() => {
     const handleMarketplaceUpdate = (payload) => {
       setAuctions((prev) =>
-        prev.map((auc) => {
-          if (auc.id === payload.auctionId || auc._id === payload.auctionId) {
-            return {
-              ...auc,
-              currentPrice: payload.currentPrice !== undefined ? payload.currentPrice : auc.currentPrice,
-              bidsCount: payload.bidsCount !== undefined ? payload.bidsCount : auc.bidsCount,
-              closingAt: payload.closingAt || auc.closingAt,
-              status: payload.status || auc.status
-            };
-          }
-          return auc;
-        })
+        prev
+          .map((auc) => {
+            const idMatch = auc.id === payload.auctionId || auc._id === payload.auctionId;
+            if (idMatch) {
+              return {
+                ...auc,
+                currentPrice: payload.currentPrice !== undefined ? payload.currentPrice : auc.currentPrice,
+                bidsCount: payload.bidsCount !== undefined ? payload.bidsCount : auc.bidsCount,
+                closingAt: payload.closingAt || auc.closingAt,
+                status: payload.status || auc.status
+              };
+            }
+            return auc;
+          })
+          .filter((auc) => auc.status === 'active' && new Date(auc.closingAt).getTime() > Date.now())
       );
     };
 
@@ -81,7 +117,7 @@ export default function Home() {
     };
   }, []);
 
-  // Closing soon subset (< 1 hour remaining)
+  // Closing soon subset (< 1 hour remaining) for highlight strip
   const closingSoonAuctions = useMemo(() => {
     const oneHourFromNow = Date.now() + 60 * 60 * 1000;
     return auctions.filter(
@@ -106,27 +142,42 @@ export default function Home() {
           </p>
 
           {/* Quick Search Bar */}
-          <div className="search-bar-wrapper">
+          <form className="search-bar-wrapper" onSubmit={handleSearchSubmit}>
             <Search className="search-icon" size={20} />
             <input
+              id="auction-search-input"
               type="text"
               className="search-input"
               placeholder="Search cycles, calculators, books, monitors or sellers..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSearchSubmit(e);
+                }
+              }}
             />
-            {searchQuery && (
+            {searchInput && (
               <button
+                type="button"
                 className="btn-clear-search"
-                onClick={() => setSearchQuery('')}
+                onClick={handleClearSearch}
+                aria-label="Clear search input"
               >
                 Clear
               </button>
             )}
-            <Link to="/create-listing" className="btn-hero-sell">
-              <PlusCircle size={16} /> List Item
-            </Link>
-          </div>
+            <button
+              type="submit"
+              className="btn-hero-search"
+              id="search-submit-button"
+              aria-label="Search auctions"
+            >
+              <Search size={16} />
+              <span>Search</span>
+            </button>
+          </form>
 
           {/* Quick Stats Pill */}
           <div className="hero-stats-row">
@@ -178,7 +229,7 @@ export default function Home() {
 
             <div className="closing-soon-grid">
               {closingSoonAuctions.map((auction) => (
-                <AuctionCard key={`soon-${auction.id}`} auction={auction} />
+                <AuctionCard key={`soon-${auction.id || auction._id}`} auction={auction} />
               ))}
             </div>
           </div>
@@ -216,20 +267,22 @@ export default function Home() {
         {/* Loading / Error / Grid State */}
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem 0' }}>
-            <LoadingSpinner size="lg" message="Loading live campus auctions from database..." />
+            <LoadingSpinner size="lg" message="Searching campus auctions..." />
           </div>
         ) : error ? (
-          <div style={{
-            background: 'rgba(239, 68, 68, 0.1)',
-            border: '1px solid rgba(239, 68, 68, 0.3)',
-            color: '#ef4444',
-            padding: '1.25rem',
-            borderRadius: '12px',
-            margin: '2rem 0',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.75rem'
-          }}>
+          <div
+            style={{
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              color: '#ef4444',
+              padding: '1.25rem',
+              borderRadius: '12px',
+              margin: '2rem 0',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem'
+            }}
+          >
             <AlertCircle size={20} />
             <div>
               <strong>Error loading listings:</strong> {error}
@@ -238,18 +291,21 @@ export default function Home() {
         ) : auctions.length > 0 ? (
           <div className="auctions-grid">
             {auctions.map((auction) => (
-              <AuctionCard key={auction.id} auction={auction} />
+              <AuctionCard key={auction.id || auction._id} auction={auction} />
             ))}
           </div>
         ) : (
           <EmptyState
             title="No auctions match your search"
-            description={`We couldn't find any listings for "${searchQuery || selectedCategory}". Try another keyword or create a listing yourself!`}
+            description={
+              searchQuery
+                ? `We couldn't find any listings matching "${searchQuery}"${
+                    selectedCategory !== 'all' ? ` in ${CATEGORIES.find((c) => c.id === selectedCategory)?.label}` : ''
+                  }. Try another keyword or reset filters!`
+                : `No active listings found in this category.`
+            }
             actionLabel="Reset Search Filters"
-            onAction={() => {
-              setSearchQuery('');
-              setSelectedCategory('all');
-            }}
+            onAction={handleResetAllFilters}
           />
         )}
       </section>
