@@ -6,6 +6,8 @@ import dotenv from 'dotenv';
 import { connectDB } from './config/db.js';
 import authRoutes from './routes/auth.js';
 import auctionRoutes from './routes/auctions.js';
+import transactionRoutes from './routes/transactions.js';
+import notificationRoutes from './routes/notifications.js';
 import { seedInitialAuctionsIfEmpty } from './config/seed.js';
 import { initSocket } from './services/socket.js';
 import { startAuctionScheduler } from './services/auctionLifecycle.js';
@@ -52,6 +54,8 @@ app.use(cookieParser());
 // Mount API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/auctions', auctionRoutes);
+app.use('/api/transactions', transactionRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Health Check Endpoint
 app.get('/api/health', (req, res) => {

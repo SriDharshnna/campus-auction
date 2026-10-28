@@ -41,6 +41,8 @@ export function getIO() {
   return io;
 }
 
+export const getIo = getIO;
+
 /**
  * Real-time event broadcasters
  */

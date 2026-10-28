@@ -1,6 +1,8 @@
 import Auction from '../models/Auction.js';
 import Bid from '../models/Bid.js';
+import Transaction from '../models/Transaction.js';
 import { broadcastAuctionClosed } from './socket.js';
+import { createNotification } from './notificationService.js';
 
 let schedulerInterval = null;
 
@@ -84,6 +86,47 @@ export async function closeAuctionIfDue(auctionId) {
       provisionalWinnerMasked: closedAuction.provisionalWinnerMasked,
       closedAt: closedAuction.closedAt
     });
+
+    // Module 7: If closed with bids, automatically create Transaction in pending_seller_approval
+    if (closedAuction.status === 'pending_approval' && closedAuction.provisionalWinner) {
+      try {
+        const existingTx = await Transaction.findOne({ auction: closedAuction._id });
+        if (!existingTx) {
+          const newTx = await Transaction.create({
+            auction: closedAuction._id,
+            auctionTitle: closedAuction.title,
+            seller: closedAuction.seller,
+            sellerName: closedAuction.sellerName,
+            sellerRoll: closedAuction.sellerRoll,
+            buyer: closedAuction.provisionalWinner,
+            buyerName: closedAuction.provisionalWinnerName,
+            finalPrice: closedAuction.winningAmount,
+            pickupLocation: closedAuction.pickupLocation,
+            status: 'pending_seller_approval'
+          });
+
+          // Notify seller
+          await createNotification(closedAuction.seller, {
+            title: 'Auction Ended: Seller Approval Needed',
+            message: `Your auction for "${closedAuction.title}" ended with a winning bid of ₹${closedAuction.winningAmount.toLocaleString('en-IN')}. Please approve or reject the sale.`,
+            type: 'approval_needed',
+            auctionId: closedAuction._id,
+            transactionId: newTx._id
+          });
+
+          // Notify provisional winning buyer
+          await createNotification(closedAuction.provisionalWinner, {
+            title: 'Auction Concluded: Awaiting Seller Approval',
+            message: `Congratulations! Your bid of ₹${closedAuction.winningAmount.toLocaleString('en-IN')} is the provisional winner for "${closedAuction.title}". Waiting for seller decision.`,
+            type: 'auction_won',
+            auctionId: closedAuction._id,
+            transactionId: newTx._id
+          });
+        }
+      } catch (err) {
+        console.error('[Lifecycle Transaction Init Error]:', err.message);
+      }
+    }
   }
 
   return closedAuction;

@@ -158,5 +158,113 @@ export const api = {
   getBidHistory: async (auctionId) => {
     const res = await fetch(`${API_BASE}/api/auctions/${auctionId}/bids`);
     return handleResponse(res);
+  },
+
+  // Module 7: Transactions & Campus Handover Endpoints
+  getTransactions: async (filters = {}) => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== '') {
+        params.append(key, val);
+      }
+    });
+    const queryString = params.toString();
+    const res = await fetch(`${API_BASE}/api/transactions${queryString ? `?${queryString}` : ''}`, {
+      headers: getAuthHeaders(),
+      credentials: 'include'
+    });
+    return handleResponse(res);
+  },
+
+  getMyBids: async () => {
+    const res = await fetch(`${API_BASE}/api/transactions/my-bids`, {
+      headers: getAuthHeaders(),
+      credentials: 'include'
+    });
+    return handleResponse(res);
+  },
+
+  getTransactionById: async (id) => {
+    const res = await fetch(`${API_BASE}/api/transactions/${id}`, {
+      headers: getAuthHeaders(),
+      credentials: 'include'
+    });
+    return handleResponse(res);
+  },
+
+  approveTransaction: async (id) => {
+    const res = await fetch(`${API_BASE}/api/transactions/${id}/approve`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include'
+    });
+    return handleResponse(res);
+  },
+
+  rejectTransaction: async (id, reason) => {
+    const res = await fetch(`${API_BASE}/api/transactions/${id}/reject`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ reason })
+    });
+    return handleResponse(res);
+  },
+
+  confirmHandover: async (id, notes) => {
+    const res = await fetch(`${API_BASE}/api/transactions/${id}/handover`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ notes })
+    });
+    return handleResponse(res);
+  },
+
+  reportFailedPickup: async (id, reason) => {
+    const res = await fetch(`${API_BASE}/api/transactions/${id}/fail-pickup`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ reason })
+    });
+    return handleResponse(res);
+  },
+
+  cancelTransaction: async (id, reason) => {
+    const res = await fetch(`${API_BASE}/api/transactions/${id}/cancel`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ reason })
+    });
+    return handleResponse(res);
+  },
+
+  // Module 7: Notification Endpoints
+  getNotifications: async (unreadOnly = false) => {
+    const res = await fetch(`${API_BASE}/api/notifications${unreadOnly ? '?unreadOnly=true' : ''}`, {
+      headers: getAuthHeaders(),
+      credentials: 'include'
+    });
+    return handleResponse(res);
+  },
+
+  markNotificationRead: async (id) => {
+    const res = await fetch(`${API_BASE}/api/notifications/${id}/read`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      credentials: 'include'
+    });
+    return handleResponse(res);
+  },
+
+  markAllNotificationsRead: async () => {
+    const res = await fetch(`${API_BASE}/api/notifications/mark-all-read`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      credentials: 'include'
+    });
+    return handleResponse(res);
   }
 };
