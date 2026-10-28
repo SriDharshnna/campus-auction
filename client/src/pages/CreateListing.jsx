@@ -5,6 +5,64 @@ import { CATEGORIES } from '../mock/mockData';
 import { api } from '../services/api';
 import './CreateListing.css';
 
+// Helper to convert date to YYYY-MM-DDTHH:mm for datetime-local input
+const toLocalDateTimeString = (dateInput) => {
+  const d = dateInput ? new Date(dateInput) : new Date();
+  if (isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+// Helper to calculate human-readable preview and relative remaining time
+const getClosingPreview = (dateTimeStr) => {
+  if (!dateTimeStr) {
+    return { isValid: false, message: 'Please select an auction closing date and time.' };
+  }
+  const target = new Date(dateTimeStr);
+  if (isNaN(target.getTime())) {
+    return { isValid: false, message: 'Invalid date/time format.' };
+  }
+  const diffMs = target.getTime() - Date.now();
+  if (diffMs <= 60 * 1000) {
+    return {
+      isValid: false,
+      message: 'Closing time must be at least 1 minute into the future.'
+    };
+  }
+
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+  const days = Math.floor(diffMinutes / (24 * 60));
+  const hours = Math.floor((diffMinutes % (24 * 60)) / 60);
+  const mins = diffMinutes % 60;
+
+  let relative = 'in ';
+  if (days > 0) relative += `${days}d `;
+  if (hours > 0 || days > 0) relative += `${hours}h `;
+  relative += `${mins}m`;
+
+  const formattedDate = target.toLocaleDateString(undefined, {
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+  const formattedTime = target.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  return {
+    isValid: true,
+    formatted: `${formattedDate} at ${formattedTime}`,
+    relative
+  };
+};
+
 export default function CreateListing({ isEditMode = false }) {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -14,7 +72,10 @@ export default function CreateListing({ isEditMode = false }) {
   const [condition, setCondition] = useState('Good Condition');
   const [startingPrice, setStartingPrice] = useState('');
   const [minIncrement, setMinIncrement] = useState('100');
-  const [durationHours, setDurationHours] = useState('24');
+  const [closingAt, setClosingAt] = useState(() =>
+    toLocalDateTimeString(new Date(Date.now() + 24 * 60 * 60 * 1000))
+  );
+  const [hasBids, setHasBids] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const [pickupLocation, setPickupLocation] = useState('Hostel 4 / Main Gate');
   const [description, setDescription] = useState('');
@@ -40,6 +101,10 @@ export default function CreateListing({ isEditMode = false }) {
             setImageUrl(a.imageUrl || '');
             setPickupLocation(a.pickupLocation || '');
             setDescription(a.description || '');
+            if (a.closingAt) {
+              setClosingAt(toLocalDateTimeString(a.closingAt));
+            }
+            setHasBids((a.bidsCount || 0) > 0);
           }
         } catch (err) {
           setError(err.message || 'Failed to load auction details for editing.');
@@ -50,6 +115,12 @@ export default function CreateListing({ isEditMode = false }) {
       fetchToEdit();
     }
   }, [isEditMode, id]);
+
+  const handlePresetClosing = (hoursToAdd) => {
+    if (hasBids) return;
+    const futureDate = new Date(Date.now() + hoursToAdd * 60 * 60 * 1000);
+    setClosingAt(toLocalDateTimeString(futureDate));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -70,6 +141,22 @@ export default function CreateListing({ isEditMode = false }) {
       return;
     }
 
+    if (!closingAt) {
+      setError('Please select an auction closing date and time.');
+      return;
+    }
+
+    const targetDate = new Date(closingAt);
+    if (isNaN(targetDate.getTime())) {
+      setError('Please enter a valid closing date and time.');
+      return;
+    }
+
+    if (targetDate.getTime() <= Date.now() + 60 * 1000) {
+      setError('Closing time must be at least 1 minute into the future.');
+      return;
+    }
+
     try {
       setLoading(true);
       const payload = {
@@ -78,7 +165,7 @@ export default function CreateListing({ isEditMode = false }) {
         condition,
         startingPrice: Number(startingPrice),
         minIncrement: Number(minIncrement),
-        durationHours: Number(durationHours) || 24,
+        closingAt: targetDate.toISOString(),
         imageUrl: imageUrl.trim() || undefined,
         pickupLocation: pickupLocation.trim(),
         description: description.trim()
@@ -102,6 +189,7 @@ export default function CreateListing({ isEditMode = false }) {
   };
 
   const handleSampleFill = (sampleType) => {
+    setClosingAt(toLocalDateTimeString(new Date(Date.now() + 24 * 60 * 60 * 1000)));
     if (sampleType === 'cycle') {
       setTitle('Hero Sprint Pro 26T City Bicycle');
       setCategory('cycles');
@@ -227,10 +315,10 @@ export default function CreateListing({ isEditMode = false }) {
               </div>
             </div>
 
-            {/* Pricing & Duration */}
+            {/* Pricing & Custom Deadline */}
             <div className="form-section">
-              <h3>2. Auction Rules & Pricing</h3>
-              <div className="form-row-3">
+              <h3>2. Auction Rules & Custom Deadline</h3>
+              <div className="form-row-2">
                 <div className="form-group">
                   <label htmlFor="starting-price" className="form-label">
                     Starting Price (₹) <span className="req">*</span>
@@ -262,25 +350,97 @@ export default function CreateListing({ isEditMode = false }) {
                     required
                   />
                 </div>
-
-                <div className="form-group">
-                  <label htmlFor="auction-duration" className="form-label">
-                    Auction Duration
-                  </label>
-                  <select
-                    id="auction-duration"
-                    className="form-input"
-                    value={durationHours}
-                    onChange={(e) => setDurationHours(e.target.value)}
-                  >
-                    <option value="1">1 Hour (Quick Demo)</option>
-                    <option value="6">6 Hours</option>
-                    <option value="24">24 Hours (1 Day)</option>
-                    <option value="48">48 Hours (2 Days)</option>
-                    <option value="72">72 Hours (3 Days)</option>
-                  </select>
-                </div>
               </div>
+
+              {/* Custom Closing Date & Time */}
+              <div className="closing-picker-wrapper">
+                <div className="form-group">
+                  <label htmlFor="auction-closing-at" className="form-label">
+                    <Clock size={15} style={{ verticalAlign: 'middle', marginRight: '6px' }} />
+                    Auction Closing Date & Time <span className="req">*</span>
+                  </label>
+                  <input
+                    id="auction-closing-at"
+                    type="datetime-local"
+                    className="form-input"
+                    value={closingAt}
+                    onChange={(e) => setClosingAt(e.target.value)}
+                    min={toLocalDateTimeString(new Date(Date.now() + 60 * 1000))}
+                    disabled={hasBids}
+                    required
+                  />
+                </div>
+
+                {!hasBids && (
+                  <div className="quick-presets-bar">
+                    <span className="presets-label">Quick Presets:</span>
+                    <button
+                      type="button"
+                      className="btn-preset-chip"
+                      onClick={() => handlePresetClosing(6)}
+                    >
+                      +6 Hours
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-preset-chip"
+                      onClick={() => handlePresetClosing(24)}
+                    >
+                      +24 Hours (1 Day)
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-preset-chip"
+                      onClick={() => handlePresetClosing(72)}
+                    >
+                      +3 Days
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-preset-chip"
+                      onClick={() => handlePresetClosing(168)}
+                    >
+                      +7 Days (1 Week)
+                    </button>
+                  </div>
+                )}
+
+                {/* Selected Closing Time Preview Display */}
+                {(() => {
+                  const preview = getClosingPreview(closingAt);
+                  if (preview.isValid) {
+                    return (
+                      <div className="closing-preview-card" id="closing-preview-box">
+                        <div className="closing-preview-header">
+                          <CheckCircle2 size={14} color="#10b981" />
+                          <span>Scheduled Auction Deadline</span>
+                        </div>
+                        <div className="closing-preview-main">
+                          <span className="closing-preview-date">{preview.formatted}</span>
+                          <span className="closing-preview-tag">{preview.relative}</span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="closing-preview-card invalid" id="closing-preview-box">
+                      <div className="closing-preview-header">
+                        <AlertCircle size={14} color="#ef4444" />
+                        <span>Deadline Notice</span>
+                      </div>
+                      <span className="closing-preview-error">{preview.message}</span>
+                    </div>
+                  );
+                })()}
+
+                {hasBids && (
+                  <div className="locked-deadline-note">
+                    <AlertCircle size={16} />
+                    <span>Bids have already been placed on this item. To preserve auction fairness, the closing deadline cannot be altered.</span>
+                  </div>
+                )}
+              </div>
+
               <p className="field-hint">
                 * Note: Every auction enforces fair anti-sniping: bids received in the final 30 seconds extend closing by 60 seconds automatically.
               </p>

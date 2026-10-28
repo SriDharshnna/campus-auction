@@ -146,6 +146,31 @@ const auctionSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
+    provisionalWinner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    provisionalWinnerName: {
+      type: String,
+      default: null
+    },
+    provisionalWinnerMasked: {
+      type: String,
+      default: null
+    },
+    winningAmount: {
+      type: Number,
+      default: null
+    },
+    closedAt: {
+      type: Date,
+      default: null
+    },
+    antiSnipingExtensions: {
+      type: Number,
+      default: 0
+    },
     status: {
       type: String,
       enum: ['active', 'pending_approval', 'completed', 'cancelled', 'unsold'],

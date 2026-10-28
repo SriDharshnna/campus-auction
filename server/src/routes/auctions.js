@@ -2,6 +2,8 @@ import express from 'express';
 import Auction from '../models/Auction.js';
 import Bid, { maskBidderIdentity } from '../models/Bid.js';
 import { protect } from '../middleware/auth.js';
+import { broadcastBidPlaced, broadcastDeadlineExtended } from '../services/socket.js';
+import { closeAuctionIfDue } from '../services/auctionLifecycle.js';
 
 const router = express.Router();
 
@@ -107,13 +109,24 @@ router.get('/', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
-    const auction = await Auction.findById(req.params.id).populate(
+    let auction = await Auction.findById(req.params.id).populate(
       'seller',
       'name email studentId department'
     );
 
     if (!auction) {
       return res.status(404).json({ message: 'Auction item not found.' });
+    }
+
+    // Lazy check: if auction deadline has passed, ensure it is closed
+    if (auction.status === 'active' && new Date(auction.closingAt).getTime() <= Date.now()) {
+      const closed = await closeAuctionIfDue(auction._id);
+      if (closed) {
+        auction = await Auction.findById(req.params.id).populate(
+          'seller',
+          'name email studentId department'
+        );
+      }
     }
 
     return res.status(200).json({ auction });
@@ -172,16 +185,12 @@ router.post('/', protect, async (req, res) => {
       return res.status(400).json({ message: 'Minimum bid increment must be at least ₹10.' });
     }
 
-    // 3. Closing time calculation & validation
-    let resolvedClosingAt;
-    if (closingAt) {
-      resolvedClosingAt = new Date(closingAt);
-    } else if (durationHours) {
-      resolvedClosingAt = new Date(Date.now() + Number(durationHours) * 60 * 60 * 1000);
-    } else {
-      resolvedClosingAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h default
+    // 3. Closing time validation (Server-authoritative, strictly require future MongoDB Date)
+    if (!closingAt) {
+      return res.status(400).json({ message: 'Auction closing date and time is required.' });
     }
 
+    const resolvedClosingAt = new Date(closingAt);
     if (isNaN(resolvedClosingAt.getTime())) {
       return res.status(400).json({ message: 'Invalid closing date/time specified.' });
     }
@@ -282,9 +291,13 @@ router.put('/:id', protect, async (req, res) => {
       }
       if (closingAt) {
         const newClosing = new Date(closingAt);
-        if (newClosing.getTime() > Date.now()) {
-          auction.closingAt = newClosing;
+        if (isNaN(newClosing.getTime())) {
+          return res.status(400).json({ message: 'Invalid closing date/time specified.' });
         }
+        if (newClosing.getTime() <= Date.now() + 60 * 1000) {
+          return res.status(400).json({ message: 'Closing time must be at least 1 minute into the future.' });
+        }
+        auction.closingAt = newClosing;
       }
     }
 
@@ -466,10 +479,16 @@ router.post('/:id/bids', protect, async (req, res) => {
       $inc: { bidsCount: 1 }
     };
 
-    // Anti-sniping soft extension: extend closing by 60s if bid submitted within 30s of deadline
+    // Anti-sniping: automatic extension to 60 seconds from bid acceptance if submitted within final 30s
     const msRemaining = new Date(auction.closingAt).getTime() - now.getTime();
+    let extendedDeadline = false;
+    let newClosingAt = null;
+
     if (msRemaining > 0 && msRemaining <= 30 * 1000) {
-      atomicUpdate.$set.closingAt = new Date(new Date(auction.closingAt).getTime() + 60 * 1000);
+      newClosingAt = new Date(now.getTime() + 60 * 1000);
+      atomicUpdate.$set.closingAt = newClosingAt;
+      atomicUpdate.$inc.antiSnipingExtensions = 1;
+      extendedDeadline = true;
     }
 
     const updatedAuction = await Auction.findOneAndUpdate(atomicCondition, atomicUpdate, { new: true })
@@ -501,10 +520,32 @@ router.post('/:id/bids', protect, async (req, res) => {
     // Link highestBid on auction
     await Auction.findByIdAndUpdate(auction._id, { highestBid: bidRecord._id });
 
+    // 8. Real-time Socket.IO broadcasts
+    if (extendedDeadline && newClosingAt) {
+      broadcastDeadlineExtended(auction._id.toString(), {
+        auctionId: auction._id.toString(),
+        closingAt: newClosingAt.toISOString(),
+        extendedSeconds: 60,
+        antiSnipingExtensions: updatedAuction.antiSnipingExtensions,
+        message: 'Anti-sniping protection activated: auction extended to 60 seconds.'
+      });
+    }
+
+    broadcastBidPlaced(auction._id.toString(), {
+      auctionId: auction._id.toString(),
+      currentPrice: numAmount,
+      bidsCount: updatedAuction.bidsCount,
+      closingAt: updatedAuction.closingAt,
+      minNextBid: numAmount + updatedAuction.minIncrement,
+      highestBidderMasked: maskedBidder,
+      bid: bidRecord
+    });
+
     return res.status(201).json({
       message: `Your bid of ₹${numAmount.toLocaleString('en-IN')} has been accepted! You are now the leading bidder.`,
       bid: bidRecord,
-      auction: updatedAuction
+      auction: updatedAuction,
+      extendedDeadline
     });
   } catch (err) {
     console.error('[Auction Place Bid Error]:', err);

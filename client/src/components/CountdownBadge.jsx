@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Clock } from 'lucide-react';
 
-export default function CountdownBadge({ closingAt, showIcon = true, size = 'normal' }) {
+export default function CountdownBadge({ closingAt, showIcon = true, size = 'normal', onExpire }) {
   const [timeLeft, setTimeLeft] = useState(calculateTimeLeft());
 
   function calculateTimeLeft() {
-    const diff = new Date(closingAt) - new Date();
+    if (!closingAt) return { closed: true, text: 'Ended' };
+    const diff = new Date(closingAt).getTime() - Date.now();
     if (diff <= 0) return { closed: true, text: 'Ended' };
 
     const hours = Math.floor(diff / (1000 * 60 * 60));
@@ -22,16 +23,23 @@ export default function CountdownBadge({ closingAt, showIcon = true, size = 'nor
     }
 
     const urgent = minutes < 10;
+    const isSnipingZone = minutes === 0 && seconds <= 30;
     return {
       closed: false,
       text: `${minutes}m ${seconds < 10 ? '0' : ''}${seconds}s left`,
-      urgent
+      urgent,
+      isSnipingZone
     };
   }
 
   useEffect(() => {
+    setTimeLeft(calculateTimeLeft());
     const timer = setInterval(() => {
-      setTimeLeft(calculateTimeLeft());
+      const next = calculateTimeLeft();
+      setTimeLeft(next);
+      if (next.closed && onExpire) {
+        onExpire();
+      }
     }, 1000);
     return () => clearInterval(timer);
   }, [closingAt]);

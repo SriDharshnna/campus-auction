@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import { socket, joinAuctionRoom, leaveAuctionRoom } from '../services/socket';
 import CountdownBadge from '../components/CountdownBadge';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
@@ -33,6 +34,7 @@ export default function AuctionDetails() {
   const [bidAmount, setBidAmount] = useState('');
   const [bidError, setBidError] = useState('');
   const [bidSuccess, setBidSuccess] = useState('');
+  const [extensionNotice, setExtensionNotice] = useState('');
   const [placingBid, setPlacingBid] = useState(false);
   const [bidHistory, setBidHistory] = useState([]);
 
@@ -75,6 +77,68 @@ export default function AuctionDetails() {
 
     return () => {
       isMounted = false;
+    };
+  }, [id]);
+
+  // Real-time Socket.IO live updates listener
+  useEffect(() => {
+    if (!id) return;
+    joinAuctionRoom(id);
+
+    const handleRealtimeBid = (payload) => {
+      setAuction((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          currentPrice: payload.currentPrice,
+          bidsCount: payload.bidsCount,
+          closingAt: payload.closingAt || prev.closingAt,
+          highestBidderMasked: payload.highestBidderMasked || prev.highestBidderMasked
+        };
+      });
+
+      if (payload.bid) {
+        setBidHistory((prev) => {
+          const exists = prev.some((b) => (b.id || b._id) === (payload.bid.id || payload.bid._id));
+          if (exists) return prev;
+          return [payload.bid, ...prev];
+        });
+      }
+    };
+
+    const handleRealtimeExtension = (payload) => {
+      setAuction((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          closingAt: payload.closingAt
+        };
+      });
+      setExtensionNotice(payload.message || 'Anti-sniping protection activated: auction extended by 60 seconds.');
+      setTimeout(() => setExtensionNotice(''), 8000);
+    };
+
+    const handleRealtimeClosed = (payload) => {
+      setAuction((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          status: payload.status,
+          winningAmount: payload.winningAmount,
+          provisionalWinnerMasked: payload.provisionalWinnerMasked
+        };
+      });
+    };
+
+    socket.on('auction:bid', handleRealtimeBid);
+    socket.on('auction:extended', handleRealtimeExtension);
+    socket.on('auction:closed', handleRealtimeClosed);
+
+    return () => {
+      leaveAuctionRoom(id);
+      socket.off('auction:bid', handleRealtimeBid);
+      socket.off('auction:extended', handleRealtimeExtension);
+      socket.off('auction:closed', handleRealtimeClosed);
     };
   }, [id]);
 
@@ -370,7 +434,13 @@ export default function AuctionDetails() {
 
                 <div className="countdown-container">
                   <span className="label-sm">Auction Closes In</span>
-                  <CountdownBadge closingAt={auction.closingAt} size="large" />
+                  <CountdownBadge
+                    closingAt={auction.closingAt}
+                    size="large"
+                    onExpire={() => {
+                      setAuction((prev) => (prev ? { ...prev, status: prev.bidsCount > 0 ? 'pending_approval' : 'unsold' } : prev));
+                    }}
+                  />
                 </div>
               </div>
 
@@ -378,9 +448,28 @@ export default function AuctionDetails() {
               <div className="anti-sniping-banner">
                 <ShieldCheck size={16} className="shield-icon" />
                 <p>
-                  <strong>Anti-Sniping Active:</strong> Any bid submitted in the final 30 seconds automatically extends closing by 60 seconds.
+                  <strong>Anti-Sniping Active:</strong> Any bid submitted in the final 30 seconds automatically extends closing to 60 seconds.
                 </p>
               </div>
+
+              {extensionNotice && (
+                <div style={{
+                  background: 'rgba(234, 179, 8, 0.15)',
+                  border: '1px solid #eab308',
+                  color: '#ca8a04',
+                  padding: '0.75rem 1rem',
+                  borderRadius: '8px',
+                  marginBottom: '1rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  animation: 'pulse 1.5s infinite'
+                }}>
+                  <Clock size={16} /> {extensionNotice}
+                </div>
+              )}
 
               {/* Place Bid Form */}
               <form onSubmit={handleBidSubmit} className="bid-form">
@@ -412,15 +501,30 @@ export default function AuctionDetails() {
                   </div>
                 ) : isClosed ? (
                   <div style={{
-                    background: 'rgba(239, 68, 68, 0.1)',
-                    border: '1px solid rgba(239, 68, 68, 0.3)',
-                    color: '#ef4444',
-                    padding: '0.85rem',
+                    background: auction.status === 'unsold' ? 'rgba(100, 116, 139, 0.1)' : 'rgba(99, 102, 241, 0.1)',
+                    border: `1px solid ${auction.status === 'unsold' ? 'rgba(100, 116, 139, 0.3)' : 'rgba(99, 102, 241, 0.3)'}`,
+                    color: auction.status === 'unsold' ? 'var(--color-text-secondary, #94a3b8)' : 'var(--color-primary, #6366f1)',
+                    padding: '1rem',
                     borderRadius: '8px',
                     fontSize: '0.875rem',
-                    marginBottom: '1rem'
+                    marginBottom: '1rem',
+                    lineHeight: '1.5'
                   }}>
-                    <strong>Bidding Closed:</strong> This auction deadline has passed.
+                    {auction.status === 'unsold' ? (
+                      <>
+                        <strong>Auction Ended (Unsold):</strong> No qualifying bids were submitted before the closing deadline.
+                      </>
+                    ) : auction.status === 'completed' ? (
+                      <>
+                        <strong>Auction Completed:</strong> Sold to <strong>{auction.provisionalWinnerMasked || auction.highestBidderMasked}</strong> for <strong>₹{(auction.winningAmount || auction.currentPrice)?.toLocaleString('en-IN')}</strong>. Campus handover finished.
+                      </>
+                    ) : (
+                      <>
+                        <strong>Auction Closed — Provisional Winner:</strong>{' '}
+                        <span>{auction.provisionalWinnerMasked || auction.highestBidderMasked || 'Leading Student'}</span> with highest valid bid of{' '}
+                        <strong>₹{(auction.winningAmount || auction.currentPrice)?.toLocaleString('en-IN')}</strong>. Awaiting seller approval.
+                      </>
+                    )}
                   </div>
                 ) : (
                   <>

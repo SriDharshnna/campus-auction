@@ -92,7 +92,7 @@ async function runTests() {
         condition: 'Like New',
         startingPrice: 1000,
         minIncrement: 100,
-        durationHours: 12,
+        closingAt: new Date(Date.now() + 12 * 3600 * 1000).toISOString(),
         description: 'Scientific calculator used for one semester in mathematics.',
         pickupLocation: 'Library Ground Floor'
       })

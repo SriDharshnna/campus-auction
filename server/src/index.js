@@ -1,3 +1,4 @@
+import http from 'http';
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -6,6 +7,8 @@ import { connectDB } from './config/db.js';
 import authRoutes from './routes/auth.js';
 import auctionRoutes from './routes/auctions.js';
 import { seedInitialAuctionsIfEmpty } from './config/seed.js';
+import { initSocket } from './services/socket.js';
+import { startAuctionScheduler } from './services/auctionLifecycle.js';
 
 dotenv.config();
 
@@ -18,6 +21,7 @@ if (missingEnv.length > 0) {
 }
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 
 // CORS configuration for local development origins with credentials support
@@ -39,6 +43,9 @@ app.use(cors({
   credentials: true
 }));
 
+// Initialize Socket.IO with WebSocket + polling transports
+initSocket(server, allowedOrigins);
+
 app.use(express.json());
 app.use(cookieParser());
 
@@ -53,6 +60,7 @@ app.get('/api/health', (req, res) => {
     message: 'Campus Auction API is running',
     environment: process.env.NODE_ENV || 'development',
     database: 'connected',
+    realtime: 'socket.io active',
     timestamp: new Date().toISOString()
   });
 });
@@ -70,12 +78,16 @@ app.get('/', (req, res) => {
   });
 });
 
-// Connect to MongoDB and start HTTP listener
+// Connect to MongoDB, run recovery scheduler and start HTTP listener
 const start = async () => {
   try {
     await connectDB();
     await seedInitialAuctionsIfEmpty();
-    app.listen(PORT, () => {
+    
+    // Start server-authoritative auction lifecycle scheduler
+    startAuctionScheduler(3000);
+
+    server.listen(PORT, () => {
       console.log(`[Server] Campus Auction API running on port ${PORT}`);
       console.log(`[Server] Health check: http://localhost:${PORT}/api/health`);
     });

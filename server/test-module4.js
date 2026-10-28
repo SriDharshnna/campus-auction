@@ -54,8 +54,9 @@ async function runTests() {
     const auctionId = firstAuction.id;
 
     // 3. Keyword Search
-    const searchRes = await req(`/auctions?search=${encodeURIComponent('Firefox')}`);
-    assert(searchRes.status === 200 && searchRes.data.auctions.some(a => a.title.includes('Firefox')), 'Keyword search matches title');
+    const searchWord = firstAuction.title.split(' ')[0];
+    const searchRes = await req(`/auctions?search=${encodeURIComponent(searchWord)}`);
+    assert(searchRes.status === 200 && searchRes.data.auctions.some(a => a.title.toLowerCase().includes(searchWord.toLowerCase())), `Keyword search matches title for "${searchWord}"`);
 
     // 4. Category Filter
     const catRes = await req('/auctions?category=cycles');
@@ -177,7 +178,7 @@ async function runTests() {
         condition: 'Good Condition',
         startingPrice: 2200,
         minIncrement: 100,
-        durationHours: 36,
+        closingAt: new Date(Date.now() + 36 * 3600 * 1000).toISOString(),
         description: 'Original single speed bicycle with front basket and lock.',
         pickupLocation: 'Girls Hostel 2 Portico'
       })

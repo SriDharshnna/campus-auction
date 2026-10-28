@@ -3,6 +3,7 @@ import { Search, Flame, SlidersHorizontal, Sparkles, PlusCircle, AlertCircle } f
 import { Link } from 'react-router-dom';
 import { CATEGORIES } from '../mock/mockData';
 import { api } from '../services/api';
+import { socket } from '../services/socket';
 import AuctionCard from '../components/AuctionCard';
 import EmptyState from '../components/EmptyState';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -54,6 +55,31 @@ export default function Home() {
       clearTimeout(timer);
     };
   }, [selectedCategory, searchQuery, sortBy]);
+
+  // Real-time marketplace live price, bids and closing-time updates
+  useEffect(() => {
+    const handleMarketplaceUpdate = (payload) => {
+      setAuctions((prev) =>
+        prev.map((auc) => {
+          if (auc.id === payload.auctionId || auc._id === payload.auctionId) {
+            return {
+              ...auc,
+              currentPrice: payload.currentPrice !== undefined ? payload.currentPrice : auc.currentPrice,
+              bidsCount: payload.bidsCount !== undefined ? payload.bidsCount : auc.bidsCount,
+              closingAt: payload.closingAt || auc.closingAt,
+              status: payload.status || auc.status
+            };
+          }
+          return auc;
+        })
+      );
+    };
+
+    socket.on('marketplace:update', handleMarketplaceUpdate);
+    return () => {
+      socket.off('marketplace:update', handleMarketplaceUpdate);
+    };
+  }, []);
 
   // Closing soon subset (< 1 hour remaining)
   const closingSoonAuctions = useMemo(() => {
