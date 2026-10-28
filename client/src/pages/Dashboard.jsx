@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Gavel,
@@ -12,12 +12,14 @@ import {
   X,
   AlertTriangle,
   PlusCircle,
-  UserCheck
+  UserCheck,
+  Ban
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { MOCK_AUCTIONS } from '../mock/mockData';
+import { api } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
+import LoadingSpinner from '../components/LoadingSpinner';
 import './Dashboard.css';
 
 export default function Dashboard() {
@@ -26,59 +28,66 @@ export default function Dashboard() {
   const [listingsFilter, setListingsFilter] = useState('all');
   const [bidsFilter, setBidsFilter] = useState('all');
 
-  // Simulated student listings
-  const [myListings, setMyListings] = useState([
-    {
-      id: 'auc-001',
-      title: 'Firefox 21-Speed Mountain Gear Bicycle',
-      category: 'cycles',
-      currentPrice: 4200,
-      startingPrice: 3500,
-      bidsCount: 6,
-      closingAt: new Date(Date.now() + 45 * 60 * 1000).toISOString(),
-      status: 'active',
-      winnerName: 'Student ***42',
-      pickupLocation: 'Hostel 4 Ground Floor'
-    },
-    {
-      id: 'auc-004',
-      title: 'Dell 24-inch IPS 75Hz Monitor with HDMI Cable',
-      category: 'electronics',
-      currentPrice: 5800,
-      startingPrice: 4500,
-      bidsCount: 11,
-      closingAt: new Date(Date.now() + 28 * 60 * 1000).toISOString(),
-      status: 'active',
-      winnerName: 'Student ***88',
-      pickupLocation: 'Hostel 4 Ground Floor'
-    },
-    {
-      id: 'auc-007',
-      title: 'Bajaj Room Heater 1000W (Winter Essential)',
-      category: 'dorm',
-      currentPrice: 950,
-      startingPrice: 600,
-      bidsCount: 5,
-      closingAt: new Date(Date.now() - 3600 * 1000).toISOString(),
-      status: 'pending_approval',
-      winnerName: 'Student ***15',
-      winningAmount: 950,
-      pickupLocation: 'Library Courtyard'
-    },
-    {
-      id: 'auc-008',
-      title: 'Engineering Mechanics by Timoshenko (5th Edition)',
-      category: 'textbooks',
-      currentPrice: 450,
-      startingPrice: 450,
-      bidsCount: 0,
-      closingAt: new Date(Date.now() - 7200 * 1000).toISOString(),
-      status: 'unsold',
-      pickupLocation: 'Main Gate'
-    }
-  ]);
+  const [myListings, setMyListings] = useState([]);
+  const [loadingListings, setLoadingListings] = useState(true);
+  const [listingsError, setListingsError] = useState('');
 
-  // Simulated student bids
+  // Fetch real listings for the authenticated seller
+  useEffect(() => {
+    let isMounted = true;
+    const fetchSellerListings = async () => {
+      if (!currentUser?.id) return;
+      try {
+        setLoadingListings(true);
+        setListingsError('');
+        const res = await api.getAuctions({
+          seller: currentUser.id,
+          status: 'all'
+        });
+        if (isMounted) {
+          setMyListings(res?.auctions || []);
+        }
+      } catch (err) {
+        console.error('Failed to load user listings:', err);
+        if (isMounted) {
+          setListingsError(err.message || 'Failed to fetch your listings.');
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingListings(false);
+        }
+      }
+    };
+
+    fetchSellerListings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser?.id]);
+
+  // Handle real listing cancellation (Soft delete)
+  const handleCancelListing = async (listingId) => {
+    const reason = window.prompt(
+      'Are you sure you want to cancel this auction listing?\nPlease provide a reason (e.g. "Item no longer available"):',
+      'Seller withdrew item'
+    );
+    if (!reason) return;
+
+    try {
+      await api.cancelListing(listingId, reason);
+      setMyListings((prev) =>
+        prev.map((item) =>
+          item.id === listingId ? { ...item, status: 'cancelled' } : item
+        )
+      );
+      alert('Auction listing has been cancelled.');
+    } catch (err) {
+      alert(err.message || 'Failed to cancel listing.');
+    }
+  };
+
+  // Simulated student bids (to be wired in Module 5)
   const [myBids, setMyBids] = useState([
     {
       id: 'bid-rec-1',
@@ -242,7 +251,15 @@ export default function Dashboard() {
             </div>
 
             {/* Listings Table / Cards */}
-            {filteredListings.length > 0 ? (
+            {loadingListings ? (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem 0' }}>
+                <LoadingSpinner size="md" message="Loading your campus listings..." />
+              </div>
+            ) : listingsError ? (
+              <div style={{ color: '#ef4444', padding: '1rem', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '8px', margin: '1rem 0' }}>
+                {listingsError}
+              </div>
+            ) : filteredListings.length > 0 ? (
               <div className="dash-table-wrapper">
                 <table className="dash-table">
                   <thead>
@@ -268,10 +285,10 @@ export default function Dashboard() {
                           <span className="category-tag">{item.category}</span>
                         </td>
                         <td>
-                          <strong className="table-price">₹{item.currentPrice.toLocaleString('en-IN')}</strong>
+                          <strong className="table-price">₹{(item.currentPrice || 0).toLocaleString('en-IN')}</strong>
                           <span className="table-subtext">Start: ₹{item.startingPrice}</span>
                         </td>
-                        <td>{item.bidsCount} bids</td>
+                        <td>{item.bidsCount || 0} bids</td>
                         <td>
                           <StatusBadge status={item.status} />
                         </td>
@@ -281,10 +298,21 @@ export default function Dashboard() {
                               <ArrowUpRight size={15} />
                             </Link>
 
-                            {item.status === 'active' && item.bidsCount === 0 && (
-                              <Link to={`/create-listing?edit=${item.id}`} className="btn-table-action" title="Edit listing">
+                            {item.status === 'active' && (item.bidsCount === 0 || !item.bidsCount) && (
+                              <Link to={`/edit-listing/${item.id}`} className="btn-table-action" title="Edit listing">
                                 <Edit size={15} />
                               </Link>
+                            )}
+
+                            {item.status === 'active' && (
+                              <button
+                                className="btn-table-action"
+                                onClick={() => handleCancelListing(item.id)}
+                                title="Cancel auction listing"
+                                style={{ color: '#ef4444' }}
+                              >
+                                <Ban size={15} />
+                              </button>
                             )}
 
                             {/* Seller Approval Buttons */}

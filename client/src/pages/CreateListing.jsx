@@ -1,35 +1,61 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PlusCircle, Image, MapPin, Tag, Clock, ArrowLeft, CheckCircle2, AlertCircle } from 'lucide-react';
-import { CATEGORIES, MOCK_AUCTIONS } from '../mock/mockData';
+import { CATEGORIES } from '../mock/mockData';
+import { api } from '../services/api';
 import './CreateListing.css';
 
 export default function CreateListing({ isEditMode = false }) {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const existingAuction = isEditMode
-    ? MOCK_AUCTIONS.find((a) => a.id === id)
-    : null;
-
-  const [title, setTitle] = useState(existingAuction?.title || '');
-  const [category, setCategory] = useState(existingAuction?.category || 'cycles');
-  const [condition, setCondition] = useState(existingAuction?.condition || 'Good Condition');
-  const [startingPrice, setStartingPrice] = useState(existingAuction?.startingPrice || '');
-  const [minIncrement, setMinIncrement] = useState(existingAuction?.minIncrement || '100');
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState('cycles');
+  const [condition, setCondition] = useState('Good Condition');
+  const [startingPrice, setStartingPrice] = useState('');
+  const [minIncrement, setMinIncrement] = useState('100');
   const [durationHours, setDurationHours] = useState('24');
-  const [imageUrl, setImageUrl] = useState(existingAuction?.imageUrl || '');
-  const [pickupLocation, setPickupLocation] = useState(existingAuction?.pickupLocation || 'Hostel 4 / Main Gate');
-  const [description, setDescription] = useState(existingAuction?.description || '');
+  const [imageUrl, setImageUrl] = useState('');
+  const [pickupLocation, setPickupLocation] = useState('Hostel 4 / Main Gate');
+  const [description, setDescription] = useState('');
 
   const [error, setError] = useState('');
-  const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadingInitial, setLoadingInitial] = useState(isEditMode);
 
-  const handleSubmit = (e) => {
+  // If in edit mode, fetch the real auction details from backend
+  useEffect(() => {
+    if (isEditMode && id) {
+      const fetchToEdit = async () => {
+        try {
+          setLoadingInitial(true);
+          const res = await api.getAuctionById(id);
+          if (res?.auction) {
+            const a = res.auction;
+            setTitle(a.title || '');
+            setCategory(a.category || 'cycles');
+            setCondition(a.condition || 'Good Condition');
+            setStartingPrice(a.startingPrice?.toString() || '');
+            setMinIncrement(a.minIncrement?.toString() || '100');
+            setImageUrl(a.imageUrl || '');
+            setPickupLocation(a.pickupLocation || '');
+            setDescription(a.description || '');
+          }
+        } catch (err) {
+          setError(err.message || 'Failed to load auction details for editing.');
+        } finally {
+          setLoadingInitial(false);
+        }
+      };
+      fetchToEdit();
+    }
+  }, [isEditMode, id]);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
-    if (!title || !startingPrice || !minIncrement || !description) {
+    if (!title.trim() || !startingPrice || !minIncrement || !description.trim()) {
       setError('Please fill in all mandatory listing fields.');
       return;
     }
@@ -39,19 +65,40 @@ export default function CreateListing({ isEditMode = false }) {
       return;
     }
 
-    if (Number(minIncrement) <= 0) {
+    if (Number(minIncrement) < 10) {
       setError('Minimum increment must be at least ₹10.');
       return;
     }
 
-    setSubmitted(true);
-    setTimeout(() => {
-      // In Module 2, show prototype success notice and redirect to dashboard
-      alert(
-        `Listing ${isEditMode ? 'updated' : 'created'} successfully!\nTitle: ${title}\nStarting: ₹${startingPrice}\n(MongoDB persistent storage will be wired in Module 4)`
-      );
-      navigate('/dashboard');
-    }, 500);
+    try {
+      setLoading(true);
+      const payload = {
+        title: title.trim(),
+        category,
+        condition,
+        startingPrice: Number(startingPrice),
+        minIncrement: Number(minIncrement),
+        durationHours: Number(durationHours) || 24,
+        imageUrl: imageUrl.trim() || undefined,
+        pickupLocation: pickupLocation.trim(),
+        description: description.trim()
+      };
+
+      let result;
+      if (isEditMode && id) {
+        result = await api.updateListing(id, payload);
+      } else {
+        result = await api.createListing(payload);
+      }
+
+      const auctionId = result?.auction?.id || result?.auction?._id || id;
+      navigate(auctionId ? `/auctions/${auctionId}` : '/dashboard');
+    } catch (err) {
+      console.error('Auction save error:', err);
+      setError(err.message || 'Failed to save auction listing. Please verify the fields.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSampleFill = (sampleType) => {
@@ -309,9 +356,9 @@ export default function CreateListing({ isEditMode = false }) {
               <button
                 type="submit"
                 className="btn btn-primary btn-submit-listing"
-                disabled={submitted}
+                disabled={loading}
               >
-                {submitted ? (
+                {loading ? (
                   <>
                     <CheckCircle2 size={16} /> Saving Listing...
                   </>

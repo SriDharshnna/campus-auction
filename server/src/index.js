@@ -1,14 +1,26 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
+import { connectDB } from './config/db.js';
+import authRoutes from './routes/auth.js';
+import auctionRoutes from './routes/auctions.js';
+import { seedInitialAuctionsIfEmpty } from './config/seed.js';
 
 dotenv.config();
 
+// Startup validation for required environment variables
+const requiredEnv = ['MONGODB_URI', 'JWT_SECRET'];
+const missingEnv = requiredEnv.filter((key) => !process.env[key]);
+if (missingEnv.length > 0) {
+  console.error(`[Server Error] Missing required environment variables: ${missingEnv.join(', ')}`);
+  process.exit(1);
+}
+
 const app = express();
 const PORT = process.env.PORT || 5000;
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
-// CORS configuration
+// CORS configuration for local development origins with credentials support
 const allowedOrigins = [
   process.env.CLIENT_URL || 'http://localhost:5173',
   'http://localhost:5173',
@@ -19,7 +31,6 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow non-browser requests (Postman, curl) or any localhost port in development
     if (!origin || allowedOrigins.includes(origin) || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) {
       return callback(null, true);
     }
@@ -27,7 +38,13 @@ app.use(cors({
   },
   credentials: true
 }));
+
 app.use(express.json());
+app.use(cookieParser());
+
+// Mount API routes
+app.use('/api/auth', authRoutes);
+app.use('/api/auctions', auctionRoutes);
 
 // Health Check Endpoint
 app.get('/api/health', (req, res) => {
@@ -35,6 +52,7 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     message: 'Campus Auction API is running',
     environment: process.env.NODE_ENV || 'development',
+    database: 'connected',
     timestamp: new Date().toISOString()
   });
 });
@@ -44,14 +62,29 @@ app.get('/', (req, res) => {
   res.json({
     name: 'Campus Auction Backend API',
     version: '1.0.0',
-    healthCheck: '/api/health'
+    healthCheck: '/api/health',
+    endpoints: {
+      auth: '/api/auth',
+      auctions: '/api/auctions'
+    }
   });
 });
 
-// Start server
-const server = app.listen(PORT, () => {
-  console.log(`[Server] Campus Auction API running on port ${PORT}`);
-  console.log(`[Server] Health check available at http://localhost:${PORT}/api/health`);
-});
+// Connect to MongoDB and start HTTP listener
+const start = async () => {
+  try {
+    await connectDB();
+    await seedInitialAuctionsIfEmpty();
+    app.listen(PORT, () => {
+      console.log(`[Server] Campus Auction API running on port ${PORT}`);
+      console.log(`[Server] Health check: http://localhost:${PORT}/api/health`);
+    });
+  } catch (err) {
+    console.error(`[Server] Failed to initialize database: ${err.message}`);
+    process.exit(1);
+  }
+};
+
+start();
 
 export default app;

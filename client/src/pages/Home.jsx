@@ -1,50 +1,67 @@
-import { useState, useMemo } from 'react';
-import { Search, Flame, SlidersHorizontal, Sparkles, PlusCircle } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Search, Flame, SlidersHorizontal, Sparkles, PlusCircle, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { CATEGORIES, MOCK_AUCTIONS } from '../mock/mockData';
+import { CATEGORIES } from '../mock/mockData';
+import { api } from '../services/api';
 import AuctionCard from '../components/AuctionCard';
 import EmptyState from '../components/EmptyState';
+import LoadingSpinner from '../components/LoadingSpinner';
 import './Home.css';
 
 export default function Home() {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('closingSoon');
+  const [auctions, setAuctions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  // Filter and sort auctions
-  const filteredAuctions = useMemo(() => {
-    return MOCK_AUCTIONS.filter((auction) => {
-      const matchesCategory =
-        selectedCategory === 'all' || auction.category === selectedCategory;
-      const matchesSearch =
-        auction.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        auction.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        auction.seller.name.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesCategory && matchesSearch;
-    }).sort((a, b) => {
-      if (sortBy === 'closingSoon') {
-        return new Date(a.closingAt) - new Date(b.closingAt);
+  // Fetch real auctions from API with debounced search
+  useEffect(() => {
+    let isMounted = true;
+    const timer = setTimeout(async () => {
+      try {
+        setLoading(true);
+        setError('');
+        const params = {
+          sort: sortBy
+        };
+        if (selectedCategory && selectedCategory !== 'all') {
+          params.category = selectedCategory;
+        }
+        if (searchQuery.trim()) {
+          params.search = searchQuery.trim();
+        }
+
+        const data = await api.getAuctions(params);
+        if (isMounted) {
+          setAuctions(data?.auctions || []);
+        }
+      } catch (err) {
+        console.error('Failed to load auctions:', err);
+        if (isMounted) {
+          setError(err.message || 'Failed to load active auctions. Please check your connection.');
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
       }
-      if (sortBy === 'priceLow') {
-        return a.currentPrice - b.currentPrice;
-      }
-      if (sortBy === 'priceHigh') {
-        return b.currentPrice - a.currentPrice;
-      }
-      if (sortBy === 'mostBids') {
-        return b.bidsCount - a.bidsCount;
-      }
-      return 0;
-    });
+    }, 250);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
   }, [selectedCategory, searchQuery, sortBy]);
 
   // Closing soon subset (< 1 hour remaining)
   const closingSoonAuctions = useMemo(() => {
     const oneHourFromNow = Date.now() + 60 * 60 * 1000;
-    return MOCK_AUCTIONS.filter(
+    return auctions.filter(
       (a) => new Date(a.closingAt).getTime() <= oneHourFromNow && new Date(a.closingAt).getTime() > Date.now()
     );
-  }, []);
+  }, [auctions]);
 
   return (
     <div className="home-page">
@@ -150,7 +167,7 @@ export default function Home() {
                 : CATEGORIES.find((c) => c.id === selectedCategory)?.label}
             </h2>
             <span className="results-count">
-              Showing {filteredAuctions.length} available {filteredAuctions.length === 1 ? 'item' : 'items'}
+              Showing {auctions.length} available {auctions.length === 1 ? 'item' : 'items'}
             </span>
           </div>
 
@@ -170,10 +187,31 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Auctions Grid or Empty State */}
-        {filteredAuctions.length > 0 ? (
+        {/* Loading / Error / Grid State */}
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem 0' }}>
+            <LoadingSpinner size="lg" message="Loading live campus auctions from database..." />
+          </div>
+        ) : error ? (
+          <div style={{
+            background: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            color: '#ef4444',
+            padding: '1.25rem',
+            borderRadius: '12px',
+            margin: '2rem 0',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem'
+          }}>
+            <AlertCircle size={20} />
+            <div>
+              <strong>Error loading listings:</strong> {error}
+            </div>
+          </div>
+        ) : auctions.length > 0 ? (
           <div className="auctions-grid">
-            {filteredAuctions.map((auction) => (
+            {auctions.map((auction) => (
               <AuctionCard key={auction.id} auction={auction} />
             ))}
           </div>

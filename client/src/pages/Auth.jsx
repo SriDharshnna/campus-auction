@@ -23,17 +23,14 @@ const DEPT_MAP = {
 
 const ROLL_REGEX = /^[0-9]{2}(ADR|CSR|ALR|ECR|EER|ITR)[0-9]{3}$/;
 
-// Pre-existing roll numbers in mock data for client-side uniqueness validation
-const MOCK_REGISTERED_ROLLS = ['23CSR042'];
-
 export default function Auth() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { login, isAuthenticated } = useAuth();
+  const { login, register, isAuthenticated } = useAuth();
 
   const isRegister = location.pathname === '/register';
 
-  // Form states (Department removed entirely from state and UI)
+  // Form states
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [rollNumber, setRollNumber] = useState('');
@@ -74,7 +71,6 @@ export default function Auth() {
   };
 
   const validateRegistration = () => {
-    // 1. Full name validation
     const trimmedName = name.trim();
     if (!trimmedName) {
       return 'Full student name is required.';
@@ -86,7 +82,6 @@ export default function Auth() {
       return 'Student name can only contain letters, spaces, and hyphens.';
     }
 
-    // 2. Email validation
     const trimmedEmail = email.trim();
     if (!trimmedEmail) {
       return 'College email address is required.';
@@ -95,7 +90,6 @@ export default function Auth() {
       return 'Please enter a valid college email format (e.g., student@campus.edu).';
     }
 
-    // 3. Roll number validation
     const formattedRoll = rollNumber.trim().toUpperCase();
     if (!formattedRoll) {
       return 'Roll number is required.';
@@ -114,12 +108,6 @@ export default function Auth() {
       return 'Invalid roll number format. Must start with 2 digits year, 3 letters department code, and 3 digits number (e.g. 23ADR157).';
     }
 
-    // Duplicate check in mock data
-    if (MOCK_REGISTERED_ROLLS.includes(formattedRoll)) {
-      return `Roll number ${formattedRoll} is already registered in local mock data. (Note: client-side mock check, not global uniqueness).`;
-    }
-
-    // 4. Password validation
     if (!password) {
       return 'Password is required.';
     }
@@ -130,7 +118,6 @@ export default function Auth() {
       return 'Password must contain at least one letter and one number.';
     }
 
-    // 5. Confirm password match
     if (!confirmPassword) {
       return 'Please confirm your password.';
     }
@@ -155,7 +142,7 @@ export default function Auth() {
     return null;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
 
@@ -171,18 +158,26 @@ export default function Auth() {
 
       setLoading(true);
 
-      const formattedRoll = rollNumber.trim().toUpperCase();
-      const derivedDept = DEPT_MAP[formattedRoll.slice(2, 5)] || 'Engineering';
+      try {
+        const formattedRoll = rollNumber.trim().toUpperCase();
+        await register({
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          rollNumber: formattedRoll,
+          password
+        });
 
-      setTimeout(() => {
         setLoading(false);
         navigate('/login', {
           replace: true,
           state: {
-            successMsg: `Account for ${name.trim()} (${formattedRoll} - ${derivedDept}) created! Please sign in.`
+            successMsg: `Account for ${name.trim()} (${formattedRoll}) created! Please sign in with your credentials.`
           }
         });
-      }, 500);
+      } catch (err) {
+        setLoading(false);
+        setError(err.message || 'Registration failed. Please try again.');
+      }
     } else {
       const loginError = validateLogin();
       if (loginError) {
@@ -192,19 +187,19 @@ export default function Auth() {
 
       setLoading(true);
 
-      setTimeout(() => {
-        login({
-          email: email.trim(),
-          name: email.split('@')[0],
-          studentId: '23CSR042',
-          department: 'Computer Science & Engineering',
-          batch: 'Class of 2027'
+      try {
+        await login({
+          email: email.trim().toLowerCase(),
+          password
         });
         setLoading(false);
 
         const targetDestination = location.state?.from?.pathname || '/';
         navigate(targetDestination, { replace: true });
-      }, 400);
+      } catch (err) {
+        setLoading(false);
+        setError(err.message || 'Invalid email or password.');
+      }
     }
   };
 
@@ -217,7 +212,7 @@ export default function Auth() {
       setPassword('Campus2026');
       setConfirmPassword('Campus2026');
     } else {
-      setEmail('kavya.nair@campus.edu');
+      setEmail('aditya.verma@campus.edu');
       setPassword('Campus2026');
     }
   };

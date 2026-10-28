@@ -1,55 +1,151 @@
 /**
  * API SERVICE LAYER
  *
- * Provides a clean interface for frontend components to interact with the backend API.
- * In later modules, real backend routes (/api/auth, /api/auctions, etc.) will be connected here.
+ * Real HTTP client connected to the Express backend.
+ * Uses credentialed requests (cookies) + Bearer token support.
  */
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('campus_auction_token');
+  const headers = {
+    'Content-Type': 'application/json'
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+};
+
+const handleResponse = async (res) => {
+  const contentType = res.headers.get('content-type');
+  const isJson = contentType && contentType.includes('application/json');
+  const data = isJson ? await res.json() : null;
+
+  if (!res.ok) {
+    const errorMsg = data?.message || `HTTP Error ${res.status}: ${res.statusText}`;
+    const error = new Error(errorMsg);
+    error.status = res.status;
+    error.data = data;
+    throw error;
+  }
+
+  return data;
+};
 
 export const api = {
   // Health
   checkHealth: async () => {
     const res = await fetch(`${API_BASE}/api/health`);
-    if (!res.ok) throw new Error('Health check failed');
-    return res.json();
+    return handleResponse(res);
   },
 
-  // Auth placeholders (will connect to Module 3 backend)
-  login: async (credentials) => {
-    // Will call POST /api/auth/login
-    console.log('[API] Login called with:', credentials.email);
-    return { ok: true };
-  },
-
+  // Auth Endpoints (Module 3 - Connected to Real Backend)
   register: async (userData) => {
-    // Will call POST /api/auth/register
-    console.log('[API] Register called with:', userData.email);
-    return { ok: true };
+    const res = await fetch(`${API_BASE}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(userData)
+    });
+    return handleResponse(res);
   },
 
-  // Auctions placeholders (will connect to Module 4 & 5 backend)
+  login: async (credentials) => {
+    const res = await fetch(`${API_BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(credentials)
+    });
+    return handleResponse(res);
+  },
+
+  logout: async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/logout`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        credentials: 'include'
+      });
+      return handleResponse(res);
+    } catch {
+      // In case network fails, still resolve locally
+      return { ok: true };
+    }
+  },
+
+  getMe: async () => {
+    const res = await fetch(`${API_BASE}/api/auth/me`, {
+      method: 'GET',
+      headers: getAuthHeaders(),
+      credentials: 'include'
+    });
+    return handleResponse(res);
+  },
+
+  // Auctions Endpoints (Module 4 - Connected to Real Backend)
   getAuctions: async (filters = {}) => {
-    // In Module 4, this calls GET /api/auctions?category=...&search=...
-    console.log('[API] getAuctions called with filters:', filters);
-    return null;
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== '') {
+        params.append(key, val);
+      }
+    });
+    const queryString = params.toString();
+    const url = `${API_BASE}/api/auctions${queryString ? `?${queryString}` : ''}`;
+    const res = await fetch(url);
+    return handleResponse(res);
   },
 
   getAuctionById: async (id) => {
-    // In Module 4, this calls GET /api/auctions/:id
-    console.log('[API] getAuctionById called with id:', id);
-    return null;
+    const res = await fetch(`${API_BASE}/api/auctions/${id}`);
+    return handleResponse(res);
   },
 
   createListing: async (listingData) => {
-    // In Module 4, this calls POST /api/auctions
-    console.log('[API] createListing called with:', listingData);
-    return { ok: true };
+    const res = await fetch(`${API_BASE}/api/auctions`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify(listingData)
+    });
+    return handleResponse(res);
+  },
+
+  updateListing: async (id, updateData) => {
+    const res = await fetch(`${API_BASE}/api/auctions/${id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify(updateData)
+    });
+    return handleResponse(res);
+  },
+
+  cancelListing: async (id, reason = 'Seller cancelled listing') => {
+    const res = await fetch(`${API_BASE}/api/auctions/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ reason })
+    });
+    return handleResponse(res);
+  },
+
+  askQuestion: async (id, questionData) => {
+    const res = await fetch(`${API_BASE}/api/auctions/${id}/questions`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify(questionData)
+    });
+    return handleResponse(res);
   },
 
   placeBid: async (auctionId, amount) => {
-    // In Module 5, this calls POST /api/auctions/:id/bids
-    console.log('[API] placeBid called:', { auctionId, amount });
+    console.log('[API] placeBid placeholder called:', { auctionId, amount });
     return { ok: true };
   }
 };

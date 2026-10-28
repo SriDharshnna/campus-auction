@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -11,25 +11,70 @@ import {
   HelpCircle,
   Share2,
   Bookmark,
-  Gavel
+  Gavel,
+  Edit
 } from 'lucide-react';
-import { MOCK_AUCTIONS } from '../mock/mockData';
+import { useAuth } from '../context/AuthContext';
+import { api } from '../services/api';
 import CountdownBadge from '../components/CountdownBadge';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
+import LoadingSpinner from '../components/LoadingSpinner';
 import './AuctionDetails.css';
 
 export default function AuctionDetails() {
   const { id } = useParams();
-  const auction = MOCK_AUCTIONS.find((a) => a.id === id) || MOCK_AUCTIONS[0];
+  const { currentUser } = useAuth();
+
+  const [auction, setAuction] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const [bidAmount, setBidAmount] = useState('');
   const [bidError, setBidError] = useState('');
   const [newQuestion, setNewQuestion] = useState('');
-  const [questionList, setQuestionList] = useState(auction.questions || []);
+  const [questionList, setQuestionList] = useState([]);
+  const [askingQuestion, setAskingQuestion] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const minNextBid = auction.currentPrice + auction.minIncrement;
+  useEffect(() => {
+    let isMounted = true;
+    const fetchAuction = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        const res = await api.getAuctionById(id);
+        if (isMounted) {
+          const loaded = res.auction;
+          setAuction(loaded);
+          setQuestionList(loaded.questions || []);
+        }
+      } catch (err) {
+        console.error('Error fetching auction:', err);
+        if (isMounted) {
+          setError(err.message || 'Auction listing not found.');
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    if (id) {
+      fetchAuction();
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [id]);
+
+  const minNextBid = auction ? (auction.currentPrice + auction.minIncrement) : 0;
+  const isSeller = currentUser && auction && (
+    (typeof auction.seller === 'object' && auction.seller?.id === currentUser.id) ||
+    auction.seller === currentUser.id
+  );
 
   const handleBidSubmit = (e) => {
     e.preventDefault();
@@ -46,34 +91,55 @@ export default function AuctionDetails() {
       return;
     }
 
-    // In Module 2, real bidding is kept separate per prompt instructions:
-    // "Do not implement fake bidding logic. Keep API integration separate so the frontend can connect to the backend in later modules."
-    alert(`[Module 2 Frontend Preview] Bid validated! Amount: ₹${numBid.toLocaleString('en-IN')}.\nReal-time server bidding will be activated in Module 5.`);
+    // In Module 4, real bidding will be connected in Module 5
+    alert(`[Module 4 Preview] Bid validated! Amount: ₹${numBid.toLocaleString('en-IN')}.\nReal-time server bidding will be activated in Module 5.`);
     setBidAmount('');
   };
 
-  const handleAskQuestion = (e) => {
+  const handleAskQuestion = async (e) => {
     e.preventDefault();
     if (!newQuestion.trim()) return;
 
-    const questionObj = {
-      id: `q-${Date.now()}`,
-      asker: 'You (Student)',
-      question: newQuestion.trim(),
-      answer: null,
-      time: 'Just now'
-    };
-
-    setQuestionList([questionObj, ...questionList]);
-    setNewQuestion('');
+    try {
+      setAskingQuestion(true);
+      const res = await api.askQuestion(id, {
+        question: newQuestion.trim(),
+        askerName: currentUser?.name || 'Campus Student'
+      });
+      if (res && res.auction) {
+        setQuestionList(res.auction.questions || []);
+      } else {
+        const questionObj = {
+          id: `q-${Date.now()}`,
+          askerName: currentUser?.name || 'You (Student)',
+          question: newQuestion.trim(),
+          answer: null,
+          createdAt: new Date().toISOString()
+        };
+        setQuestionList([questionObj, ...questionList]);
+      }
+      setNewQuestion('');
+    } catch (err) {
+      alert(err.message || 'Failed to submit question.');
+    } finally {
+      setAskingQuestion(false);
+    }
   };
 
-  if (!auction) {
+  if (loading) {
+    return (
+      <div className="details-container" style={{ padding: '6rem 0', display: 'flex', justifyContent: 'center' }}>
+        <LoadingSpinner size="lg" message="Loading auction listing details..." />
+      </div>
+    );
+  }
+
+  if (error || !auction) {
     return (
       <div className="details-container">
         <EmptyState
           title="Auction not found"
-          description="The item you are looking for may have been removed or completed."
+          description={error || "The item you are looking for may have been removed or does not exist."}
           actionLabel="Back to Browse"
           onAction={() => window.history.back()}
         />
@@ -91,6 +157,17 @@ export default function AuctionDetails() {
           </Link>
 
           <div className="details-top-actions">
+            {isSeller && (
+              <Link
+                to={`/edit-listing/${auction.id}`}
+                className="btn-action-icon"
+                title="Edit Listing"
+                style={{ color: 'var(--color-primary, #6366f1)' }}
+              >
+                <Edit size={16} />
+                <span>Edit</span>
+              </Link>
+            )}
             <button
               className={`btn-action-icon ${saved ? 'active' : ''}`}
               onClick={() => setSaved(!saved)}
@@ -198,11 +275,13 @@ export default function AuctionDetails() {
               {/* Questions List */}
               <div className="questions-thread">
                 {questionList.length > 0 ? (
-                  questionList.map((q) => (
-                    <div key={q.id} className="question-item">
+                  questionList.map((q, idx) => (
+                    <div key={q.id || q._id || idx} className="question-item">
                       <div className="question-header">
-                        <span className="asker-name">{q.asker}</span>
-                        <span className="q-time">{q.time}</span>
+                        <span className="asker-name">{q.askerName || q.asker || 'Student'}</span>
+                        <span className="q-time">
+                          {q.createdAt ? new Date(q.createdAt).toLocaleDateString() : q.time || 'Recently'}
+                        </span>
                       </div>
                       <p className="question-text">Q: {q.question}</p>
                       {q.answer ? (
@@ -231,8 +310,8 @@ export default function AuctionDetails() {
               <div className="bidding-header">
                 <div className="current-price-group">
                   <span className="label-sm">Current Leading Price</span>
-                  <div className="price-huge">₹{auction.currentPrice.toLocaleString('en-IN')}</div>
-                  <span className="starting-subtext">Started at ₹{auction.startingPrice.toLocaleString('en-IN')}</span>
+                  <div className="price-huge">₹{(auction.currentPrice || 0).toLocaleString('en-IN')}</div>
+                  <span className="starting-subtext">Started at ₹{(auction.startingPrice || 0).toLocaleString('en-IN')}</span>
                 </div>
 
                 <div className="countdown-container">
@@ -266,7 +345,7 @@ export default function AuctionDetails() {
                     <input
                       id="bid-input"
                       type="number"
-                      step={auction.minIncrement}
+                      step={auction.minIncrement || 10}
                       min={minNextBid}
                       className="form-input bid-input"
                       placeholder={minNextBid.toString()}
@@ -284,21 +363,21 @@ export default function AuctionDetails() {
                     className="btn-quick-chip"
                     onClick={() => setBidAmount(minNextBid.toString())}
                   >
-                    +₹{auction.minIncrement} (₹{minNextBid})
+                    +₹{auction.minIncrement || 50} (₹{minNextBid})
                   </button>
                   <button
                     type="button"
                     className="btn-quick-chip"
-                    onClick={() => setBidAmount((minNextBid + auction.minIncrement).toString())}
+                    onClick={() => setBidAmount((minNextBid + (auction.minIncrement || 50)).toString())}
                   >
-                    +₹{auction.minIncrement * 2} (₹{minNextBid + auction.minIncrement})
+                    +₹{(auction.minIncrement || 50) * 2} (₹{minNextBid + (auction.minIncrement || 50)})
                   </button>
                   <button
                     type="button"
                     className="btn-quick-chip"
-                    onClick={() => setBidAmount((minNextBid + auction.minIncrement * 3).toString())}
+                    onClick={() => setBidAmount((minNextBid + (auction.minIncrement || 50) * 3).toString())}
                   >
-                    +₹{auction.minIncrement * 4}
+                    +₹{(auction.minIncrement || 50) * 4}
                   </button>
                 </div>
 
@@ -316,22 +395,22 @@ export default function AuctionDetails() {
             <div className="side-card seller-card">
               <div className="seller-header">
                 <div className="seller-avatar">
-                  {auction.seller.name.charAt(0)}
+                  {auction.seller?.name ? auction.seller.name.charAt(0).toUpperCase() : 'S'}
                 </div>
                 <div className="seller-meta">
-                  <h4>{auction.seller.name}</h4>
-                  <p>{auction.seller.department} &bull; {auction.seller.batch}</p>
+                  <h4>{auction.seller?.name || 'Campus Student'}</h4>
+                  <p>{auction.seller?.department || 'Student'} &bull; {auction.seller?.rollNumber || auction.seller?.batch || 'Senior'}</p>
                 </div>
               </div>
               <div className="seller-badge-row">
                 <span className="trust-pill">Verified Student</span>
-                <span className="rating-pill">⭐ {auction.seller.rating} rating</span>
+                <span className="rating-pill">⭐ {auction.seller?.rating || '4.9'} rating</span>
               </div>
               <div className="handover-notice">
                 <MapPin size={16} />
                 <div>
                   <strong>Pickup Point:</strong>
-                  <p>{auction.pickupLocation}</p>
+                  <p>{auction.pickupLocation || 'Campus Quad / Hostel'}</p>
                 </div>
               </div>
             </div>
