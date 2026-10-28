@@ -1,0 +1,15 @@
+{
+  "name": "campus-auction",
+  "version": "1.0.0",
+  "description": "Campus Auction - Marketplace for graduating students to auction items",
+  "private": true,
+  "scripts": {
+    "client": "npm --prefix client run dev",
+    "client:build": "npm --prefix client run build",
+    "server": "npm --prefix server run dev",
+    "server:start": "npm --prefix server run start"
+  },
+  "keywords": ["auction", "campus", "marketplace", "react", "express", "mongodb"],
+  "author": "",
+  "license": "ISC"
+}
