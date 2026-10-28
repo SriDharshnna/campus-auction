@@ -1,5 +1,6 @@
 import express from 'express';
 import Auction from '../models/Auction.js';
+import Bid, { maskBidderIdentity } from '../models/Bid.js';
 import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -379,6 +380,165 @@ router.post('/:id/questions', async (req, res) => {
   } catch (err) {
     console.error('[Auction Question Error]:', err);
     return res.status(500).json({ message: 'Server error submitting question.' });
+  }
+});
+
+/**
+ * @route   POST /api/auctions/:id/bids
+ * @desc    Submit a verified bid on an auction listing (Protected)
+ * @access  Private (Authenticated students only)
+ */
+router.post('/:id/bids', protect, async (req, res) => {
+  try {
+    const { amount } = req.body;
+    const numAmount = Number(amount);
+
+    if (!amount || isNaN(numAmount) || !Number.isFinite(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ message: 'Please enter a valid, positive bid amount.' });
+    }
+
+    // 1. Fetch current auction snapshot
+    const auction = await Auction.findById(req.params.id);
+    if (!auction) {
+      return res.status(404).json({ message: 'Auction listing not found.' });
+    }
+
+    // 2. Reject bids on inactive auctions
+    if (auction.status !== 'active') {
+      return res.status(400).json({ message: `Bidding is closed for this listing (status: ${auction.status}).` });
+    }
+
+    // 3. Reject bids by the seller (Rule 3)
+    if (auction.seller.toString() === req.user._id.toString()) {
+      return res.status(400).json({ message: 'Sellers are not permitted to bid on their own auctions.' });
+    }
+
+    // 4. Reject bids after authoritative closing time (Rule 4)
+    const now = new Date();
+    if (now.getTime() >= new Date(auction.closingAt).getTime()) {
+      return res.status(400).json({ message: 'Auction deadline has expired. No further bids can be accepted.' });
+    }
+
+    // 5. Amount validation against starting price and minimum increment (Rules 1 & 2)
+    let minRequired;
+    if (auction.bidsCount === 0) {
+      minRequired = auction.startingPrice;
+      if (numAmount < minRequired) {
+        return res.status(400).json({
+          message: `Opening bid must be at least the starting price of ₹${minRequired.toLocaleString('en-IN')}.`
+        });
+      }
+    } else {
+      minRequired = auction.currentPrice + auction.minIncrement;
+      if (numAmount < minRequired) {
+        return res.status(400).json({
+          message: `Bid must be at least ₹${minRequired.toLocaleString('en-IN')} (Current ₹${auction.currentPrice.toLocaleString('en-IN')} + ₹${auction.minIncrement} increment).`
+        });
+      }
+    }
+
+    // 6. Safe Concurrency Serialization Strategy (Rule 8)
+    // On standalone MongoDB deployments, multi-document ACID transactions are not available.
+    // We execute an atomic conditional findOneAndUpdate query where the condition checks
+    // that the auction is still active, still before closing, and currentPrice has not moved
+    // past the allowable threshold. If two simultaneous bids compete, only the first atomic
+    // write succeeds; the loser receives null and returns a 409 conflict response.
+    const atomicCondition = {
+      _id: auction._id,
+      status: 'active',
+      closingAt: { $gt: now }
+    };
+
+    if (auction.bidsCount === 0) {
+      atomicCondition.bidsCount = 0;
+    } else {
+      atomicCondition.currentPrice = { $lte: numAmount - auction.minIncrement };
+    }
+
+    const maskedBidder = maskBidderIdentity(req.user.name, req.user.studentId);
+    const atomicUpdate = {
+      $set: {
+        currentPrice: numAmount,
+        highestBidder: req.user._id,
+        highestBidderMasked: maskedBidder,
+        lastBidAt: now
+      },
+      $inc: { bidsCount: 1 }
+    };
+
+    // Anti-sniping soft extension: extend closing by 60s if bid submitted within 30s of deadline
+    const msRemaining = new Date(auction.closingAt).getTime() - now.getTime();
+    if (msRemaining > 0 && msRemaining <= 30 * 1000) {
+      atomicUpdate.$set.closingAt = new Date(new Date(auction.closingAt).getTime() + 60 * 1000);
+    }
+
+    const updatedAuction = await Auction.findOneAndUpdate(atomicCondition, atomicUpdate, { new: true })
+      .populate('seller', 'name email studentId department');
+
+    if (!updatedAuction) {
+      // Fetch latest state to report accurate minimum next bid to the outbid competitor
+      const freshAuction = await Auction.findById(auction._id);
+      const freshMin = (freshAuction?.currentPrice || 0) + (freshAuction?.minIncrement || 0);
+      return res.status(409).json({
+        message: `Another student's bid was processed just ahead of yours at ₹${freshAuction?.currentPrice?.toLocaleString('en-IN')}. Please bid at least ₹${freshMin.toLocaleString('en-IN')}.`,
+        currentPrice: freshAuction?.currentPrice,
+        minNextBid: freshMin
+      });
+    }
+
+    // 7. Record accepted bid in immutable Bid collection (Rule 5 & 10)
+    const bidRecord = new Bid({
+      auction: auction._id,
+      bidder: req.user._id,
+      bidderName: req.user.name,
+      bidderRoll: req.user.studentId,
+      bidderMasked: maskedBidder,
+      amount: numAmount
+    });
+
+    await bidRecord.save();
+
+    // Link highestBid on auction
+    await Auction.findByIdAndUpdate(auction._id, { highestBid: bidRecord._id });
+
+    return res.status(201).json({
+      message: `Your bid of ₹${numAmount.toLocaleString('en-IN')} has been accepted! You are now the leading bidder.`,
+      bid: bidRecord,
+      auction: updatedAuction
+    });
+  } catch (err) {
+    console.error('[Auction Place Bid Error]:', err);
+    return res.status(500).json({ message: 'Server error processing bid: ' + err.message });
+  }
+});
+
+/**
+ * @route   GET /api/auctions/:id/bids
+ * @desc    Get public bid history for an auction (Sanitized - Rule 6)
+ * @access  Public
+ */
+router.get('/:id/bids', async (req, res) => {
+  try {
+    const auction = await Auction.findById(req.params.id);
+    if (!auction) {
+      return res.status(404).json({ message: 'Auction listing not found.' });
+    }
+
+    // Never project email, full studentId or internal user credentials (Rule 6)
+    const bids = await Bid.find({ auction: req.params.id })
+      .sort({ createdAt: -1 })
+      .select('amount bidderMasked createdAt');
+
+    return res.status(200).json({
+      bids,
+      totalBids: bids.length
+    });
+  } catch (err) {
+    if (err.kind === 'ObjectId') {
+      return res.status(404).json({ message: 'Auction listing not found.' });
+    }
+    console.error('[Auction Bid History GET Error]:', err);
+    return res.status(500).json({ message: 'Server error retrieving bid history.' });
   }
 });
 

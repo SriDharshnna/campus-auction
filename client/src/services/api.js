@@ -144,8 +144,19 @@ export const api = {
     return handleResponse(res);
   },
 
+  // Module 5: Bidding Endpoints
   placeBid: async (auctionId, amount) => {
-    console.log('[API] placeBid placeholder called:', { auctionId, amount });
-    return { ok: true };
+    const res = await fetch(`${API_BASE}/api/auctions/${auctionId}/bids`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ amount: Number(amount) })
+    });
+    return handleResponse(res);
+  },
+
+  getBidHistory: async (auctionId) => {
+    const res = await fetch(`${API_BASE}/api/auctions/${auctionId}/bids`);
+    return handleResponse(res);
   }
 };

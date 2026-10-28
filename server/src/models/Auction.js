@@ -128,6 +128,24 @@ const auctionSchema = new mongoose.Schema(
       default: 0,
       min: 0
     },
+    highestBidder: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    highestBidderMasked: {
+      type: String,
+      default: null
+    },
+    highestBid: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Bid',
+      default: null
+    },
+    lastBidAt: {
+      type: Date,
+      default: null
+    },
     status: {
       type: String,
       enum: ['active', 'pending_approval', 'completed', 'cancelled', 'unsold'],

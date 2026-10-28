@@ -32,6 +32,10 @@ export default function AuctionDetails() {
 
   const [bidAmount, setBidAmount] = useState('');
   const [bidError, setBidError] = useState('');
+  const [bidSuccess, setBidSuccess] = useState('');
+  const [placingBid, setPlacingBid] = useState(false);
+  const [bidHistory, setBidHistory] = useState([]);
+
   const [newQuestion, setNewQuestion] = useState('');
   const [questionList, setQuestionList] = useState([]);
   const [askingQuestion, setAskingQuestion] = useState(false);
@@ -39,15 +43,19 @@ export default function AuctionDetails() {
 
   useEffect(() => {
     let isMounted = true;
-    const fetchAuction = async () => {
+    const fetchAuctionData = async () => {
       try {
         setLoading(true);
         setError('');
-        const res = await api.getAuctionById(id);
+        const [resAuction, resBids] = await Promise.all([
+          api.getAuctionById(id),
+          api.getBidHistory(id).catch(() => ({ bids: [] }))
+        ]);
         if (isMounted) {
-          const loaded = res.auction;
+          const loaded = resAuction.auction;
           setAuction(loaded);
           setQuestionList(loaded.questions || []);
+          setBidHistory(resBids?.bids || []);
         }
       } catch (err) {
         console.error('Error fetching auction:', err);
@@ -62,7 +70,7 @@ export default function AuctionDetails() {
     };
 
     if (id) {
-      fetchAuction();
+      fetchAuctionData();
     }
 
     return () => {
@@ -70,30 +78,76 @@ export default function AuctionDetails() {
     };
   }, [id]);
 
-  const minNextBid = auction ? (auction.currentPrice + auction.minIncrement) : 0;
+  const minNextBid = auction
+    ? ((auction.bidsCount === 0 || !auction.bidsCount)
+        ? auction.startingPrice
+        : auction.currentPrice + auction.minIncrement)
+    : 0;
+
   const isSeller = currentUser && auction && (
     (typeof auction.seller === 'object' && auction.seller?.id === currentUser.id) ||
     auction.seller === currentUser.id
   );
 
-  const handleBidSubmit = (e) => {
+  const isClosed = auction && (
+    auction.status !== 'active' ||
+    new Date().getTime() >= new Date(auction.closingAt).getTime()
+  );
+
+  const handleBidSubmit = async (e) => {
     e.preventDefault();
     setBidError('');
+    setBidSuccess('');
+
+    if (!currentUser) {
+      setBidError('Please sign in to place a verified bid.');
+      return;
+    }
+
+    if (isSeller) {
+      setBidError('Sellers are not permitted to bid on their own listings.');
+      return;
+    }
+
+    if (isClosed) {
+      setBidError('This auction has already closed. No further bids can be accepted.');
+      return;
+    }
 
     const numBid = Number(bidAmount);
-    if (!bidAmount || isNaN(numBid)) {
+    if (!bidAmount || isNaN(numBid) || numBid <= 0) {
       setBidError('Please enter a valid bid amount.');
       return;
     }
 
     if (numBid < minNextBid) {
-      setBidError(`Minimum valid bid is ₹${minNextBid.toLocaleString('en-IN')} (Current ₹${auction.currentPrice.toLocaleString('en-IN')} + ₹${auction.minIncrement} increment).`);
+      setBidError(`Minimum valid bid is ₹${minNextBid.toLocaleString('en-IN')}.`);
       return;
     }
 
-    // In Module 4, real bidding will be connected in Module 5
-    alert(`[Module 4 Preview] Bid validated! Amount: ₹${numBid.toLocaleString('en-IN')}.\nReal-time server bidding will be activated in Module 5.`);
-    setBidAmount('');
+    try {
+      setPlacingBid(true);
+      const res = await api.placeBid(id, numBid);
+      setBidSuccess(res.message || `Bid of ₹${numBid.toLocaleString('en-IN')} placed successfully!`);
+      if (res.auction) {
+        setAuction(res.auction);
+      }
+      if (res.bid) {
+        setBidHistory((prev) => [res.bid, ...prev]);
+      } else {
+        // Refresh bid history
+        const updatedBids = await api.getBidHistory(id);
+        if (updatedBids?.bids) {
+          setBidHistory(updatedBids.bids);
+        }
+      }
+      setBidAmount('');
+    } catch (err) {
+      console.error('Bid error:', err);
+      setBidError(err.message || 'Failed to place bid. Please try again.');
+    } finally {
+      setPlacingBid(false);
+    }
   };
 
   const handleAskQuestion = async (e) => {
@@ -330,64 +384,114 @@ export default function AuctionDetails() {
 
               {/* Place Bid Form */}
               <form onSubmit={handleBidSubmit} className="bid-form">
-                <div className="form-group">
-                  <div className="bid-label-row">
-                    <label htmlFor="bid-input" className="form-label">
-                      Your Maximum Bid (₹)
-                    </label>
-                    <span className="min-bid-hint">
-                      Min next: <strong>₹{minNextBid.toLocaleString('en-IN')}</strong>
-                    </span>
+                {bidSuccess && (
+                  <div style={{
+                    background: 'rgba(34, 197, 94, 0.1)',
+                    border: '1px solid rgba(34, 197, 94, 0.3)',
+                    color: '#22c55e',
+                    padding: '0.75rem 1rem',
+                    borderRadius: '8px',
+                    marginBottom: '1rem',
+                    fontSize: '0.875rem'
+                  }}>
+                    {bidSuccess}
                   </div>
+                )}
 
-                  <div className="input-prefix-box">
-                    <span className="currency-symbol">₹</span>
-                    <input
-                      id="bid-input"
-                      type="number"
-                      step={auction.minIncrement || 10}
-                      min={minNextBid}
-                      className="form-input bid-input"
-                      placeholder={minNextBid.toString()}
-                      value={bidAmount}
-                      onChange={(e) => setBidAmount(e.target.value)}
-                    />
+                {isSeller ? (
+                  <div style={{
+                    background: 'rgba(234, 179, 8, 0.1)',
+                    border: '1px solid rgba(234, 179, 8, 0.3)',
+                    color: '#eab308',
+                    padding: '0.85rem',
+                    borderRadius: '8px',
+                    fontSize: '0.875rem',
+                    marginBottom: '1rem'
+                  }}>
+                    <strong>Seller Notice:</strong> You are the seller of this auction and cannot place bids on it.
                   </div>
-                  {bidError && <p className="form-error-msg">{bidError}</p>}
-                </div>
+                ) : isClosed ? (
+                  <div style={{
+                    background: 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    color: '#ef4444',
+                    padding: '0.85rem',
+                    borderRadius: '8px',
+                    fontSize: '0.875rem',
+                    marginBottom: '1rem'
+                  }}>
+                    <strong>Bidding Closed:</strong> This auction deadline has passed.
+                  </div>
+                ) : (
+                  <>
+                    <div className="form-group">
+                      <div className="bid-label-row">
+                        <label htmlFor="bid-input" className="form-label">
+                          Your Maximum Bid (₹)
+                        </label>
+                        <span className="min-bid-hint">
+                          Min next: <strong>₹{minNextBid.toLocaleString('en-IN')}</strong>
+                        </span>
+                      </div>
 
-                {/* Quick Increment Buttons */}
-                <div className="quick-bid-buttons">
-                  <button
-                    type="button"
-                    className="btn-quick-chip"
-                    onClick={() => setBidAmount(minNextBid.toString())}
-                  >
-                    +₹{auction.minIncrement || 50} (₹{minNextBid})
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-quick-chip"
-                    onClick={() => setBidAmount((minNextBid + (auction.minIncrement || 50)).toString())}
-                  >
-                    +₹{(auction.minIncrement || 50) * 2} (₹{minNextBid + (auction.minIncrement || 50)})
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-quick-chip"
-                    onClick={() => setBidAmount((minNextBid + (auction.minIncrement || 50) * 3).toString())}
-                  >
-                    +₹{(auction.minIncrement || 50) * 4}
-                  </button>
-                </div>
+                      <div className="input-prefix-box">
+                        <span className="currency-symbol">₹</span>
+                        <input
+                          id="bid-input"
+                          type="number"
+                          step={auction.minIncrement || 10}
+                          min={minNextBid}
+                          className="form-input bid-input"
+                          placeholder={minNextBid.toString()}
+                          value={bidAmount}
+                          onChange={(e) => setBidAmount(e.target.value)}
+                          disabled={placingBid}
+                        />
+                      </div>
+                      {bidError && <p className="form-error-msg">{bidError}</p>}
+                    </div>
 
-                <button type="submit" className="btn btn-primary btn-bid-submit">
-                  <Gavel size={18} /> Place Validated Bid
-                </button>
+                    {/* Quick Increment Buttons */}
+                    <div className="quick-bid-buttons">
+                      <button
+                        type="button"
+                        className="btn-quick-chip"
+                        onClick={() => setBidAmount(minNextBid.toString())}
+                        disabled={placingBid}
+                      >
+                        Opening / Min (₹{minNextBid})
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-quick-chip"
+                        onClick={() => setBidAmount((minNextBid + (auction.minIncrement || 50)).toString())}
+                        disabled={placingBid}
+                      >
+                        +₹{auction.minIncrement || 50} (₹{minNextBid + (auction.minIncrement || 50)})
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-quick-chip"
+                        onClick={() => setBidAmount((minNextBid + (auction.minIncrement || 50) * 2).toString())}
+                        disabled={placingBid}
+                      >
+                        +₹{(auction.minIncrement || 50) * 2}
+                      </button>
+                    </div>
 
-                <p className="bidding-terms-note">
-                  By bidding, you commit to purchasing at this price if you are the provisional winner and the seller approves.
-                </p>
+                    <button
+                      type="submit"
+                      className="btn btn-primary btn-bid-submit"
+                      disabled={placingBid}
+                    >
+                      <Gavel size={18} /> {placingBid ? 'Submitting Validated Bid...' : 'Place Validated Bid'}
+                    </button>
+
+                    <p className="bidding-terms-note">
+                      By bidding, you commit to purchasing at this price if you are the provisional winner and the seller approves.
+                    </p>
+                  </>
+                )}
               </form>
             </div>
 
@@ -420,27 +524,29 @@ export default function AuctionDetails() {
               <div className="history-header">
                 <div className="title-with-icon">
                   <History size={16} />
-                  <h4>Public Bid History ({auction.bidHistory?.length || 0})</h4>
+                  <h4>Public Bid History ({bidHistory.length})</h4>
                 </div>
                 <span className="history-hint">Privacy Protected</span>
               </div>
 
               <div className="bid-history-list">
-                {auction.bidHistory && auction.bidHistory.length > 0 ? (
-                  auction.bidHistory.map((bid, index) => (
+                {bidHistory && bidHistory.length > 0 ? (
+                  bidHistory.map((bid, index) => (
                     <div
-                      key={bid.id}
-                      className={`bid-history-row ${index === auction.bidHistory.length - 1 ? 'leading-bid' : ''}`}
+                      key={bid.id || bid._id || index}
+                      className={`bid-history-row ${index === 0 ? 'leading-bid' : ''}`}
                     >
                       <div className="bidder-info">
-                        <span className="bidder-masked">{bid.bidderName}</span>
-                        {index === auction.bidHistory.length - 1 && (
-                          <span className="winning-badge">Highest</span>
+                        <span className="bidder-masked">{bid.bidderMasked || 'Student ***'}</span>
+                        {index === 0 && (
+                          <span className="winning-badge">Leading</span>
                         )}
                       </div>
                       <div className="bid-figures">
-                        <strong className="bid-price">₹{bid.amount.toLocaleString('en-IN')}</strong>
-                        <span className="bid-time">{bid.time}</span>
+                        <strong className="bid-price">₹{(bid.amount || 0).toLocaleString('en-IN')}</strong>
+                        <span className="bid-time">
+                          {bid.createdAt ? new Date(bid.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently'}
+                        </span>
                       </div>
                     </div>
                   ))
