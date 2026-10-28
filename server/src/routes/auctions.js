@@ -205,8 +205,8 @@ router.post('/', protect, async (req, res) => {
       category: category.toLowerCase().trim(),
       condition: condition || 'Good Condition',
       description: description.trim(),
-      imageUrl: imageUrl?.trim() || 'https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?auto=format&fit=crop&w=800&q=80',
-      imageUrls: Array.isArray(imageUrls) ? imageUrls : [],
+      imageUrl: imageUrl?.trim() || (Array.isArray(imageUrls) && imageUrls.length > 0 ? imageUrls[0] : 'https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?auto=format&fit=crop&w=800&q=80'),
+      imageUrls: Array.isArray(imageUrls) && imageUrls.length > 0 ? imageUrls : (imageUrl ? [imageUrl.trim()] : []),
       startingPrice: startPriceNum,
       minIncrement: minIncNum,
       currentPrice: startPriceNum,
@@ -259,6 +259,7 @@ router.put('/:id', protect, async (req, res) => {
       condition,
       description,
       imageUrl,
+      imageUrls,
       pickupLocation,
       startingPrice,
       minIncrement,
@@ -305,6 +306,12 @@ router.put('/:id', protect, async (req, res) => {
     if (description) auction.description = description.trim();
     if (pickupLocation) auction.pickupLocation = pickupLocation.trim();
     if (imageUrl) auction.imageUrl = imageUrl.trim();
+    if (Array.isArray(imageUrls)) {
+      auction.imageUrls = imageUrls;
+      if (imageUrls.length > 0 && !imageUrl) {
+        auction.imageUrl = imageUrls[0];
+      }
+    }
 
     await auction.save();
     await auction.populate('seller', 'name email studentId department');

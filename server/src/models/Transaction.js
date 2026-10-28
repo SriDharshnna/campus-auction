@@ -135,6 +135,54 @@ const transactionSchema = new mongoose.Schema(
         type: Date,
         default: null
       }
+    },
+    payment: {
+      method: {
+        type: String,
+        enum: ['COD', 'UPI', null],
+        default: null
+      },
+      status: {
+        type: String,
+        enum: ['PENDING', 'PAID', 'FAILED', 'CANCELLED'],
+        default: 'PENDING'
+      },
+      amount: {
+        type: Number,
+        default: null
+      },
+      currency: {
+        type: String,
+        default: 'INR'
+      },
+      transactionReference: {
+        type: String,
+        trim: true,
+        default: null
+      },
+      upiQrData: {
+        type: String,
+        trim: true,
+        default: null
+      },
+      methodSelectedAt: {
+        type: Date,
+        default: null
+      },
+      paidAt: {
+        type: Date,
+        default: null
+      },
+      verifiedBy: {
+        type: String,
+        enum: ['SELLER_HANDOVER', 'UPI_VERIFIED', 'GATEWAY', null],
+        default: null
+      },
+      notes: {
+        type: String,
+        trim: true,
+        default: null
+      }
     }
   },
   {

@@ -8,6 +8,8 @@ import authRoutes from './routes/auth.js';
 import auctionRoutes from './routes/auctions.js';
 import transactionRoutes from './routes/transactions.js';
 import notificationRoutes from './routes/notifications.js';
+import uploadRoutes from './routes/upload.js';
+import path from 'path';
 import { seedInitialAuctionsIfEmpty } from './config/seed.js';
 import { initSocket } from './services/socket.js';
 import { startAuctionScheduler } from './services/auctionLifecycle.js';
@@ -51,11 +53,15 @@ initSocket(server, allowedOrigins);
 app.use(express.json());
 app.use(cookieParser());
 
+// Serve static uploaded files
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
 // Mount API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/auctions', auctionRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Health Check Endpoint
 app.get('/api/health', (req, res) => {

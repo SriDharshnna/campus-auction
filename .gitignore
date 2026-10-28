@@ -17,6 +17,10 @@ build/
 # Testing & Coverage
 coverage/
 
+# User uploads (preserve directory structure)
+server/uploads/*
+!server/uploads/.gitkeep
+
 # OS / Editor artifacts
 .DS_Store
 Thumbs.db

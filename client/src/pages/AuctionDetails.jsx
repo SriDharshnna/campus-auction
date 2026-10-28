@@ -42,6 +42,7 @@ export default function AuctionDetails() {
   const [questionList, setQuestionList] = useState([]);
   const [askingQuestion, setAskingQuestion] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [activeImgUrl, setActiveImgUrl] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -144,8 +145,8 @@ export default function AuctionDetails() {
 
   const minNextBid = auction
     ? ((auction.bidsCount === 0 || !auction.bidsCount)
-        ? auction.startingPrice
-        : auction.currentPrice + auction.minIncrement)
+      ? auction.startingPrice
+      : auction.currentPrice + auction.minIncrement)
     : 0;
 
   const isSeller = currentUser && auction && (

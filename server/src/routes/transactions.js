@@ -336,6 +336,213 @@ router.post('/:id/reject', protect, async (req, res) => {
 });
 
 /**
+ * @route   POST /api/transactions/:id/payment
+ * @desc    Winning buyer selects and confirms payment method (COD or UPI)
+ * @access  Private (Winning Buyer only)
+ */
+router.post('/:id/payment', protect, async (req, res) => {
+  try {
+    const { method } = req.body;
+    const tx = await Transaction.findById(req.params.id);
+
+    if (!tx) {
+      return res.status(404).json({ message: 'Transaction not found.' });
+    }
+
+    // Security: Only the winning buyer can select and confirm the payment method
+    if (tx.buyer.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Forbidden. Only the winning buyer can select the payment method.' });
+    }
+
+    // State validation: Transaction must be approved (reserved for winner)
+    if (tx.status !== 'approved') {
+      return res.status(400).json({
+        message: `Payment can only be configured for approved and reserved items (current status: ${tx.status}).`
+      });
+    }
+
+    // Validate payment method
+    if (!['COD', 'UPI'].includes(method)) {
+      return res.status(400).json({ message: 'Invalid payment method. Choose either "COD" or "UPI".' });
+    }
+
+    const now = new Date();
+
+    if (method === 'COD') {
+      tx.payment = {
+        method: 'COD',
+        status: 'PENDING',
+        amount: tx.finalPrice,
+        currency: 'INR',
+        methodSelectedAt: now,
+        paidAt: null,
+        transactionReference: null,
+        upiQrData: null,
+        notes: 'Cash payment to be collected at designated campus handover'
+      };
+
+      await tx.save();
+
+      // Notify seller
+      await createNotification(tx.seller, {
+        title: 'Payment Method Confirmed (COD)',
+        message: `Buyer selected Cash on Delivery for "${tx.auctionTitle}". Please collect ₹${tx.finalPrice.toLocaleString('en-IN')} during campus handover at ${tx.pickupLocation}.`,
+        type: 'general',
+        auctionId: tx.auction,
+        transactionId: tx._id
+      });
+    } else {
+      // UPI intent generation
+      const upiUri = `upi://pay?pa=campus.auction@upi&pn=Campus%20Auction&am=${tx.finalPrice}&tn=Auction-${tx.auction}&cu=INR`;
+      tx.payment = {
+        method: 'UPI',
+        status: 'PENDING',
+        amount: tx.finalPrice,
+        currency: 'INR',
+        methodSelectedAt: now,
+        paidAt: null,
+        transactionReference: null,
+        upiQrData: upiUri,
+        notes: 'UPI payment initiated. Awaiting verified payment confirmation.'
+      };
+
+      await tx.save();
+
+      // Notify seller
+      await createNotification(tx.seller, {
+        title: 'Payment Method Selected (UPI)',
+        message: `Buyer selected UPI for "${tx.auctionTitle}". Awaiting verified transaction confirmation before handover.`,
+        type: 'general',
+        auctionId: tx.auction,
+        transactionId: tx._id
+      });
+    }
+
+    try {
+      const io = getIo();
+      if (io) {
+        io.emit('transaction:updated', { transactionId: tx._id.toString(), paymentStatus: tx.payment.status });
+      }
+    } catch {}
+
+    const populatedTx = await Transaction.findById(tx._id)
+      .populate('auction')
+      .populate('seller', 'name email studentId department')
+      .populate('buyer', 'name email studentId department');
+
+    return res.status(200).json({
+      message: `Payment method ${method} confirmed successfully.`,
+      transaction: populatedTx
+    });
+  } catch (err) {
+    console.error('[Transaction Payment Error]:', err);
+    return res.status(500).json({ message: 'Server error configuring payment: ' + err.message });
+  }
+});
+
+/**
+ * @route   POST /api/transactions/:id/verify-upi
+ * @desc    Verify UPI payment via transaction reference (UTR)
+ * @access  Private (Winning Buyer only)
+ */
+router.post('/:id/verify-upi', protect, async (req, res) => {
+  try {
+    const { referenceId } = req.body;
+    const tx = await Transaction.findById(req.params.id);
+
+    if (!tx) {
+      return res.status(404).json({ message: 'Transaction not found.' });
+    }
+
+    // Security check: Only the winning buyer
+    if (tx.buyer.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Forbidden. Only the winning buyer can submit payment verification.' });
+    }
+
+    if (tx.status !== 'approved') {
+      return res.status(400).json({ message: `Cannot verify payment on an item that is ${tx.status}.` });
+    }
+
+    if (!tx.payment || tx.payment.method !== 'UPI') {
+      return res.status(400).json({ message: 'UPI payment has not been selected for this transaction.' });
+    }
+
+    if (tx.payment.status === 'PAID') {
+      return res.status(400).json({ message: 'This UPI payment has already been verified and marked as PAID.' });
+    }
+
+    // Validate referenceId
+    if (!referenceId || typeof referenceId !== 'string' || referenceId.trim().length < 6) {
+      return res.status(400).json({
+        message: 'A valid UPI Transaction Reference ID (UTR, min 6 characters) is required for verification.'
+      });
+    }
+
+    const cleanRef = referenceId.trim();
+
+    // Verification check (simulate failure if reference contains FAIL)
+    if (cleanRef.toUpperCase() === 'FAIL' || cleanRef.toUpperCase().includes('FAIL')) {
+      tx.payment.status = 'FAILED';
+      tx.payment.notes = 'UPI verification failed for reference: ' + cleanRef;
+      await tx.save();
+
+      return res.status(400).json({
+        message: 'UPI payment verification failed. Please check the reference or retry.',
+        payment: tx.payment
+      });
+    }
+
+    // Verified!
+    const now = new Date();
+    tx.payment.status = 'PAID';
+    tx.payment.paidAt = now;
+    tx.payment.transactionReference = cleanRef;
+    tx.payment.verifiedBy = 'UPI_VERIFIED';
+    tx.payment.notes = 'UPI transaction verified successfully with reference: ' + cleanRef;
+
+    await tx.save();
+
+    // Notify seller
+    await createNotification(tx.seller, {
+      title: 'UPI Payment Verified!',
+      message: `Payment of ₹${tx.finalPrice.toLocaleString('en-IN')} for "${tx.auctionTitle}" has been verified via UPI (Ref: ${cleanRef}). You may proceed with campus handover.`,
+      type: 'general',
+      auctionId: tx.auction,
+      transactionId: tx._id
+    });
+
+    // Notify buyer
+    await createNotification(tx.buyer, {
+      title: 'UPI Payment Confirmed',
+      message: `Your payment of ₹${tx.finalPrice.toLocaleString('en-IN')} for "${tx.auctionTitle}" was verified. Ready for campus meetup at ${tx.pickupLocation}.`,
+      type: 'general',
+      auctionId: tx.auction,
+      transactionId: tx._id
+    });
+
+    try {
+      const io = getIo();
+      if (io) {
+        io.emit('transaction:updated', { transactionId: tx._id.toString(), paymentStatus: 'PAID' });
+      }
+    } catch {}
+
+    const populatedTx = await Transaction.findById(tx._id)
+      .populate('auction')
+      .populate('seller', 'name email studentId department')
+      .populate('buyer', 'name email studentId department');
+
+    return res.status(200).json({
+      message: 'UPI payment verified successfully.',
+      transaction: populatedTx
+    });
+  } catch (err) {
+    console.error('[Verify UPI Error]:', err);
+    return res.status(500).json({ message: 'Server error verifying UPI payment: ' + err.message });
+  }
+});
+
+/**
  * @route   POST /api/transactions/:id/handover
  * @desc    Record confirmed campus handover of item and payment
  * @access  Private (Authorized participants only: Seller or Buyer)
@@ -368,7 +575,28 @@ router.post('/:id/handover', protect, async (req, res) => {
       return res.status(400).json({ message: `Cannot confirm handover on a transaction that is ${tx.status}.` });
     }
 
+    // Payment validation: Buyer must have confirmed payment method
+    if (!tx.payment || !tx.payment.method) {
+      return res.status(400).json({
+        message: 'Buyer must select and confirm a payment method before campus handover.'
+      });
+    }
+
+    if (tx.payment.method === 'UPI' && tx.payment.status !== 'PAID') {
+      return res.status(400).json({
+        message: 'UPI payment is still pending. Handover can only be confirmed after verified payment.'
+      });
+    }
+
     const now = new Date();
+
+    const paymentUpdate = {};
+    if (tx.payment.method === 'COD') {
+      paymentUpdate['payment.status'] = 'PAID';
+      paymentUpdate['payment.paidAt'] = now;
+      paymentUpdate['payment.verifiedBy'] = 'SELLER_HANDOVER';
+      paymentUpdate['payment.notes'] = 'Cash payment collected at campus handover';
+    }
 
     // Atomic update
     const updatedTx = await Transaction.findOneAndUpdate(
@@ -380,7 +608,8 @@ router.post('/:id/handover', protect, async (req, res) => {
           'handover.confirmedBy': req.user._id,
           'handover.confirmedBySeller': isSeller || tx.handover.confirmedBySeller,
           'handover.confirmedByBuyer': isBuyer || tx.handover.confirmedByBuyer,
-          'handover.notes': notes?.trim() || 'Campus handover successfully completed at designated pickup location'
+          'handover.notes': notes?.trim() || 'Campus handover successfully completed at designated pickup location',
+          ...paymentUpdate
         }
       },
       { new: true }

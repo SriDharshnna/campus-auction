@@ -13,7 +13,8 @@ import {
   AlertTriangle,
   PlusCircle,
   UserCheck,
-  Ban
+  Ban,
+  CreditCard
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
@@ -290,12 +291,27 @@ export default function Dashboard() {
                         <span className="detail-label">{isSeller ? 'Meeting Buyer' : 'Meeting Seller'}</span>
                         <span className="detail-val">{otherName} ({otherRoll})</span>
                       </div>
-                      <div className="card-detail-item" style={{ gridColumn: 'span 2' }}>
+                      <div className="card-detail-item">
                         <span className="detail-label">Handover Meeting Spot</span>
                         <span className="detail-val">{tx.pickupLocation}</span>
                       </div>
+                      <div className="card-detail-item">
+                        <span className="detail-label">Payment Status</span>
+                        <span className="detail-val" style={{ color: tx.payment?.status === 'PAID' ? '#10b981' : '#f59e0b' }}>
+                          {tx.payment?.status ? `${tx.payment.status} (${tx.payment.method || 'Unselected'})` : 'Awaiting Payment Selection'}
+                        </span>
+                      </div>
                     </div>
                     <div className="card-action-bar">
+                      {!isSeller && tx.payment?.status !== 'PAID' && (
+                        <Link
+                          to={`/payment/${tx.id}`}
+                          className="btn btn-primary"
+                          style={{ padding: '0.4rem 0.85rem', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                        >
+                          <CreditCard size={14} /> {tx.payment?.method ? 'Verify / Change Payment' : 'Confirm Payment'}
+                        </Link>
+                      )}
                       <button
                         className="btn-report-fail"
                         onClick={() => handleReportFailedPickup(tx.id)}
@@ -557,12 +573,27 @@ export default function Dashboard() {
                           </td>
                           <td>
                             {tx?.status === 'approved' ? (
-                              <button
-                                className="btn-confirm-handover"
-                                onClick={() => handleConfirmHandover(tx.id || tx._id)}
-                              >
-                                <Handshake size={14} /> Confirm Pickup
-                              </button>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                {tx?.payment?.status !== 'PAID' ? (
+                                  <Link
+                                    to={`/payment/${tx.id || tx._id}`}
+                                    className="btn btn-primary"
+                                    style={{ padding: '0.25rem 0.6rem', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+                                  >
+                                    <CreditCard size={12} /> Confirm Payment
+                                  </Link>
+                                ) : (
+                                  <span className="badge-done" style={{ fontSize: '0.72rem' }}>
+                                    <CheckCircle size={12} /> Paid ({tx?.payment?.method})
+                                  </span>
+                                )}
+                                <button
+                                  className="btn-confirm-handover"
+                                  onClick={() => handleConfirmHandover(tx.id || tx._id)}
+                                >
+                                  <Handshake size={14} /> Confirm Pickup
+                                </button>
+                              </div>
                             ) : tx?.status === 'completed' ? (
                               <span className="badge-done">
                                 <CheckCircle size={13} /> Handover Done

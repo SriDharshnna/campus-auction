@@ -134,6 +134,26 @@ export const api = {
     return handleResponse(res);
   },
 
+  // Image Upload Endpoint (multipart/form-data)
+  uploadImages: async (files) => {
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append('images', files[i]);
+    }
+    const token = localStorage.getItem('campus_auction_token');
+    const headers = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const res = await fetch(`${API_BASE}/api/upload`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: formData
+    });
+    return handleResponse(res);
+  },
+
   askQuestion: async (id, questionData) => {
     const res = await fetch(`${API_BASE}/api/auctions/${id}/questions`, {
       method: 'POST',
@@ -197,6 +217,26 @@ export const api = {
       method: 'POST',
       headers: getAuthHeaders(),
       credentials: 'include'
+    });
+    return handleResponse(res);
+  },
+
+  selectPaymentMethod: async (id, method) => {
+    const res = await fetch(`${API_BASE}/api/transactions/${id}/payment`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ method })
+    });
+    return handleResponse(res);
+  },
+
+  verifyUpiPayment: async (id, referenceId) => {
+    const res = await fetch(`${API_BASE}/api/transactions/${id}/verify-upi`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ referenceId })
     });
     return handleResponse(res);
   },

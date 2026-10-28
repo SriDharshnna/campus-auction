@@ -161,8 +161,11 @@ async function run() {
     console.log('  Waiting 1.5s for auction deadline to expire...');
     await new Promise((r) => setTimeout(r, 1500));
 
-    // Trigger close
-    const closedAuc1 = await closeAuctionIfDue(auc1._id);
+    // Trigger close (or retrieve if background scheduler already processed it)
+    let closedAuc1 = await closeAuctionIfDue(auc1._id);
+    if (!closedAuc1) {
+      closedAuc1 = await Auction.findById(auc1._id);
+    }
     assert(closedAuc1 && closedAuc1.status === 'pending_approval', 'Auction closed with status "pending_approval"');
     assert(closedAuc1.winningAmount === 2200, 'Winning amount recorded as ₹2,200');
 
@@ -279,6 +282,14 @@ async function run() {
     // TEST 7: Confirmed Campus Handover (Completion)
     // -------------------------------------------------------------------------
     console.log('\n--- 7. Confirmed Campus Handover ---');
+    // Buyer selects COD payment method prior to campus handover
+    const selectCOD = await req(`/transactions/${tx1._id}/payment`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tokenBuyer}` },
+      body: JSON.stringify({ method: 'COD' })
+    });
+    assert(selectCOD.status === 200, 'Buyer selected COD payment method before handover');
+
     const validHandover = await req(`/transactions/${tx1._id}/handover`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${tokenBuyer}` },

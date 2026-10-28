@@ -207,7 +207,8 @@
   gap: 0.5rem;
 }
 
-.title-with-icon h3, .title-with-icon h4 {
+.title-with-icon h3,
+.title-with-icon h4 {
   font-size: 1.1rem;
 }
 
