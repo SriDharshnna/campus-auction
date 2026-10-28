@@ -6,7 +6,8 @@ import {
   AlertCircle,
   CheckCircle2,
   Eye,
-  EyeOff
+  EyeOff,
+  Gavel
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './Auth.css';
@@ -240,13 +241,17 @@ export default function Auth() {
 
         <div className="auth-content">
           <div className="auth-header-block">
+            <div className="auth-brand-badge">
+              <Gavel size={15} className="auth-brand-icon" />
+              <span>Handover</span>
+            </div>
             <h1 className="auth-heading">
-              {isRegister ? 'Create Account' : 'Welcome Back'}
+              {isRegister ? 'Join Handover' : 'Welcome to Handover'}
             </h1>
             <p className="auth-subheading">
               {isRegister
-                ? 'Join your campus marketplace to bid and auction items.'
-                : 'Sign in to access your auctions, bids, and listings.'}
+                ? 'Create your verified student account to bid and auction items on Handover.'
+                : 'Sign in to access your Handover auctions, bids, and listings.'}
             </p>
           </div>
 

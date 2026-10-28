@@ -10,6 +10,25 @@
   gap: 2rem;
 }
 
+/* Page Title Header */
+.dashboard-header-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.dashboard-page-title {
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.dashboard-page-subtitle {
+  font-size: 0.92rem;
+  color: var(--text-secondary);
+}
+
 /* Profile Header */
 .profile-header-card {
   background: var(--bg-secondary);

@@ -47,7 +47,7 @@ export default function Navbar() {
             <Gavel size={20} className="brand-icon" />
           </div>
           <div className="brand-text-group">
-            <span className="brand-name">Campus Auction</span>
+            <span className="brand-name">Handover</span>
             <span className="brand-tag">Student Marketplace</span>
           </div>
         </Link>

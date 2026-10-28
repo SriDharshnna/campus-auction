@@ -139,7 +139,7 @@ export default function PaymentConfirmation() {
   const finalPrice = transaction.finalPrice || 0;
 
   // Generate UPI QR Code URL using standard chart QR API
-  const upiUri = payment.upiQrData || `upi://pay?pa=campus.auction@upi&pn=Campus%20Auction&am=${finalPrice}&tn=Auction-${transaction.auction?._id || transaction.auction}&cu=INR`;
+  const upiUri = payment.upiQrData || `upi://pay?pa=handover.campus@upi&pn=Handover&am=${finalPrice}&tn=Auction-${transaction.auction?._id || transaction.auction}&cu=INR`;
   const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(upiUri)}`;
 
   return (

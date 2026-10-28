@@ -73,10 +73,10 @@ export default function AIAssistant() {
               <Sparkles size={24} className="sparkle-active" />
             </div>
             <div>
-              <div className="ai-badge">Module J &bull; AI Assistant Placeholder</div>
-              <h1>Campus Listing &amp; Valuation Copilot</h1>
+              <div className="ai-badge">Handover &bull; AI Assistant</div>
+              <h1>Handover Valuation &amp; Listing Copilot</h1>
               <p>
-                Get AI-assisted starting price estimates, polished item descriptions and campus auction advice.
+                Get AI-assisted starting price estimates, polished item descriptions, and Handover auction advice.
               </p>
             </div>
           </div>

@@ -131,7 +131,7 @@ export default function Home() {
       <section className="hero-banner">
         <div className="hero-container">
           <div className="hero-badge">
-            <Sparkles size={14} /> Graduating Student Marketplace
+            <Sparkles size={14} /> Handover &bull; Graduating Student Marketplace
           </div>
           <h1 className="hero-title">
             Bid on Used Cycles, Textbooks & Tech <br />
@@ -240,7 +240,7 @@ export default function Home() {
           <div className="toolbar-info">
             <h2>
               {selectedCategory === 'all'
-                ? 'All Active Campus Auctions'
+                ? 'All Active Handover Auctions'
                 : CATEGORIES.find((c) => c.id === selectedCategory)?.label}
             </h2>
             <span className="results-count">
@@ -267,7 +267,7 @@ export default function Home() {
         {/* Loading / Error / Grid State */}
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem 0' }}>
-            <LoadingSpinner size="lg" message="Searching campus auctions..." />
+            <LoadingSpinner size="lg" message="Searching Handover auctions..." />
           </div>
         ) : error ? (
           <div

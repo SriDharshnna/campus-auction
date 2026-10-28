@@ -74,6 +74,26 @@
   gap: 0.35rem;
 }
 
+.auth-brand-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  align-self: center;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  color: #a5b4fc;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.35rem;
+}
+
+.auth-brand-icon {
+  color: #818cf8;
+}
+
 .auth-heading {
   font-size: 1.6rem;
   line-height: 1.2;

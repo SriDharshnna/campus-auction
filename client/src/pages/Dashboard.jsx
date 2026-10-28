@@ -186,6 +186,14 @@ export default function Dashboard() {
   return (
     <div className="dashboard-page">
       <div className="dashboard-container">
+        {/* Page Title Header */}
+        <div className="dashboard-header-block">
+          <h1 className="dashboard-page-title">Handover Dashboard</h1>
+          <p className="dashboard-page-subtitle">
+            Manage your active campus auctions, bids, seller approvals, and physical handovers.
+          </p>
+        </div>
+
         {/* Profile Header Card */}
         <section className="profile-header-card">
           <div className="profile-left">

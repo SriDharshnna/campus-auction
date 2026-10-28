@@ -403,7 +403,7 @@ export default function CreateListing({ isEditMode = false }) {
             <div className="create-title-box">
               <PlusCircle className="create-icon" size={24} />
               <div>
-                <h1>{isEditMode ? 'Edit Campus Listing' : 'Create an Item Auction'}</h1>
+                <h1>{isEditMode ? 'Edit Handover Listing' : 'Create an Item Auction'}</h1>
                 <p>List your cycle, textbooks or essentials for graduating or junior students</p>
               </div>
             </div>
@@ -804,7 +804,7 @@ export default function CreateListing({ isEditMode = false }) {
                 ) : isEditMode ? (
                   'Save Changes'
                 ) : (
-                  'Publish Campus Auction'
+                  'Publish Handover Auction'
                 )}
               </button>
             </div>

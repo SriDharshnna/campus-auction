@@ -31,7 +31,7 @@ export default function Footer() {
       </div>
 
       <div className="footer-bottom">
-        <p>&copy; {new Date().getFullYear()} Campus Auction Marketplace &bull; Hackathon Demo Release</p>
+        <p>&copy; {new Date().getFullYear()} Handover &bull; Campus Auction Marketplace &bull; Hackathon Demo Release</p>
         <div className="footer-links">
           <span>Student Rules</span>
           <span>&bull;</span>
