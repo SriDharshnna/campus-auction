@@ -24,6 +24,8 @@ import { api } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
 import LoadingSpinner from '../components/LoadingSpinner';
+import ExtendAuctionModal from '../components/ExtendAuctionModal';
+import CancelAuctionModal from '../components/CancelAuctionModal';
 import './Dashboard.css';
 
 export default function Dashboard() {
@@ -41,6 +43,9 @@ export default function Dashboard() {
 
   const [myBids, setMyBids] = useState([]);
   const [loadingBids, setLoadingBids] = useState(true);
+
+  const [extendingAuction, setExtendingAuction] = useState(null);
+  const [cancellingAuction, setCancellingAuction] = useState(null);
 
   const fetchDashboardData = useCallback(async () => {
     if (!currentUser?.id) return;
@@ -191,7 +196,7 @@ export default function Dashboard() {
       <div className="dashboard-container">
         {/* Page Title Header */}
         <div className="dashboard-header-block">
-          <h1 className="dashboard-page-title">Handover Dashboard</h1>
+          <h1 className="dashboard-page-title">My Dashboard</h1>
           <p className="dashboard-page-subtitle">
             Manage your active campus auctions, bids, seller approvals, and physical handovers.
           </p>
@@ -532,7 +537,18 @@ export default function Dashboard() {
                               {item.status === 'active' && (
                                 <button
                                   className="btn-table-action"
-                                  onClick={() => handleCancelListing(item.id || item._id)}
+                                  onClick={() => setExtendingAuction(item)}
+                                  title="Extend auction deadline"
+                                  style={{ color: '#818cf8' }}
+                                >
+                                  <Clock size={15} />
+                                </button>
+                              )}
+
+                              {item.status === 'active' && (
+                                <button
+                                  className="btn-table-action"
+                                  onClick={() => setCancellingAuction(item)}
                                   title="Cancel auction listing"
                                   style={{ color: '#ef4444' }}
                                 >
@@ -736,6 +752,26 @@ export default function Dashboard() {
             )}
           </div>
         )}
+
+        {/* Manual Auction Extension Modal */}
+        <ExtendAuctionModal
+          isOpen={!!extendingAuction}
+          onClose={() => setExtendingAuction(null)}
+          auction={extendingAuction}
+          onSuccess={() => {
+            fetchDashboardData();
+          }}
+        />
+
+        {/* Seller Auction Cancellation Modal */}
+        <CancelAuctionModal
+          isOpen={!!cancellingAuction}
+          onClose={() => setCancellingAuction(null)}
+          auction={cancellingAuction}
+          onSuccess={() => {
+            fetchDashboardData();
+          }}
+        />
       </div>
     </div>
   );

@@ -124,12 +124,22 @@ export const api = {
     return handleResponse(res);
   },
 
-  cancelListing: async (id, reason = 'Seller cancelled listing') => {
+  cancelListing: async (id, reason) => {
     const res = await fetch(`${API_BASE}/api/auctions/${id}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
       credentials: 'include',
       body: JSON.stringify({ reason })
+    });
+    return handleResponse(res);
+  },
+
+  extendAuction: async (id, newClosingAt) => {
+    const res = await fetch(`${API_BASE}/api/auctions/${id}/extend`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ newClosingAt })
     });
     return handleResponse(res);
   },

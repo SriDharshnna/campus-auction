@@ -17,6 +17,8 @@ export default function StatusBadge({ status, label }) {
         return { className: 'badge-pending', text: label || 'Awaiting Approval' };
       case 'unsold':
         return { className: 'badge-unsold', text: label || 'Unsold' };
+      case 'cancelled':
+        return { className: 'badge-cancelled', text: label || 'Cancelled' };
       default:
         return { className: 'badge-default', text: label || status };
     }

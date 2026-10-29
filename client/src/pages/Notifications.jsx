@@ -146,7 +146,7 @@ export default function Notifications() {
 
                 <div className="notif-card-right">
                   <Link to="/dashboard" className="btn-notif-action">
-                    View in Dashboard <ArrowRight size={14} />
+                    View in My Dashboard <ArrowRight size={14} />
                   </Link>
                 </div>
               </div>

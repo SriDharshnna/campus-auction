@@ -21,7 +21,8 @@ import {
   Handshake,
   Check,
   X,
-  Calendar
+  Calendar,
+  Ban
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
@@ -30,6 +31,8 @@ import CountdownBadge from '../components/CountdownBadge';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
 import LoadingSpinner from '../components/LoadingSpinner';
+import ExtendAuctionModal from '../components/ExtendAuctionModal';
+import CancelAuctionModal from '../components/CancelAuctionModal';
 import './AuctionDetails.css';
 
 export default function AuctionDetails() {
@@ -54,6 +57,8 @@ export default function AuctionDetails() {
   const [saved, setSaved] = useState(false);
   const [activeImgUrl, setActiveImgUrl] = useState(null);
   const [txActionLoading, setTxActionLoading] = useState(false);
+  const [showExtendModal, setShowExtendModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
 
   const fetchAuctionData = async () => {
     try {
@@ -141,15 +146,28 @@ export default function AuctionDetails() {
       fetchAuctionData();
     };
 
+    const handleRealtimeCancelled = (payload) => {
+      setAuction((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          status: 'cancelled',
+          cancellationReason: payload.cancellationReason
+        };
+      });
+    };
+
     socket.on('auction:bid', handleRealtimeBid);
     socket.on('auction:extended', handleRealtimeExtension);
     socket.on('auction:closed', handleRealtimeClosed);
+    socket.on('auction:cancelled', handleRealtimeCancelled);
 
     return () => {
       leaveAuctionRoom(id);
       socket.off('auction:bid', handleRealtimeBid);
       socket.off('auction:extended', handleRealtimeExtension);
       socket.off('auction:closed', handleRealtimeClosed);
+      socket.off('auction:cancelled', handleRealtimeCancelled);
     };
   }, [id]);
 
@@ -361,8 +379,8 @@ export default function AuctionDetails() {
       })
     : 'Not specified';
 
-  // Determine if Transaction Section is relevant
-  const hasTransactionOrEnded = !!transaction || isClosed || auction.status !== 'active';
+  // Determine if Transaction Section is relevant (never relevant for cancelled auctions)
+  const hasTransactionOrEnded = (!!transaction || isClosed || auction.status !== 'active') && auction.status !== 'cancelled';
 
   return (
     <div className="details-page">
@@ -384,6 +402,30 @@ export default function AuctionDetails() {
                 <Edit size={16} />
                 <span>Edit</span>
               </Link>
+            )}
+            {isSeller && auction.status === 'active' && !isClosed && (
+              <>
+                <button
+                  type="button"
+                  className="btn-action-icon"
+                  onClick={() => setShowExtendModal(true)}
+                  title="Extend Auction Deadline"
+                  style={{ color: '#818cf8' }}
+                >
+                  <Clock size={16} />
+                  <span>Extend</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn-action-icon"
+                  onClick={() => setShowCancelModal(true)}
+                  title="Cancel Auction"
+                  style={{ color: '#ef4444' }}
+                >
+                  <Ban size={16} />
+                  <span>Cancel</span>
+                </button>
+              </>
             )}
             <button
               className={`btn-action-icon ${saved ? 'active' : ''}`}
@@ -677,12 +719,43 @@ export default function AuctionDetails() {
                   </div>
                 )}
 
-                {isSeller ? (
+                {auction.status === 'cancelled' ? (
+                  <div className="auction-cancelled-notice-box">
+                    <AlertCircle size={22} className="cancelled-icon" />
+                    <div className="cancelled-content">
+                      <h4>Auction Cancelled by Seller</h4>
+                      <p className="cancelled-reason">
+                        <strong>Reason:</strong> {auction.cancellationReason || 'Cancelled by seller'}
+                      </p>
+                      <p className="cancelled-explanation">
+                        Bidding is closed for this listing. No winner was selected and no transaction or handover will occur. Bid records are preserved for auditing.
+                      </p>
+                    </div>
+                  </div>
+                ) : isSeller ? (
                   <div className="seller-notice-box">
                     <Sparkles size={16} />
-                    <div>
+                    <div style={{ flex: 1 }}>
                       <strong>Your Listing (Seller View):</strong>
                       <p>Sellers are not permitted to bid on their own items. Monitor live bids below.</p>
+                      {auction.status === 'active' && !isClosed && (
+                        <div className="seller-management-actions">
+                          <button
+                            type="button"
+                            className="btn-extend-action"
+                            onClick={() => setShowExtendModal(true)}
+                          >
+                            <Clock size={15} /> Extend Deadline
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-danger-outline"
+                            onClick={() => setShowCancelModal(true)}
+                          >
+                            <Ban size={15} /> Cancel Auction
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : isClosed ? (
@@ -990,6 +1063,28 @@ export default function AuctionDetails() {
             )}
           </div>
         </div>
+
+        {/* Manual Auction Extension Modal */}
+        <ExtendAuctionModal
+          isOpen={showExtendModal}
+          onClose={() => setShowExtendModal(false)}
+          auction={auction}
+          onSuccess={(updated) => {
+            setAuction(updated);
+            setExtensionNotice('Auction deadline extended successfully.');
+            setTimeout(() => setExtensionNotice(''), 8000);
+          }}
+        />
+
+        {/* Seller Auction Cancellation Modal */}
+        <CancelAuctionModal
+          isOpen={showCancelModal}
+          onClose={() => setShowCancelModal(false)}
+          auction={auction}
+          onSuccess={(updated) => {
+            setAuction(updated);
+          }}
+        />
       </div>
     </div>
   );

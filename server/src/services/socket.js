@@ -79,3 +79,13 @@ export function broadcastAuctionClosed(auctionId, payload) {
     winningAmount: payload.winningAmount
   });
 }
+
+export function broadcastAuctionCancelled(auctionId, payload) {
+  if (!io) return;
+  io.to(`auction:${auctionId}`).emit('auction:cancelled', payload);
+  io.emit('marketplace:update', {
+    auctionId,
+    status: 'cancelled',
+    cancellationReason: payload.cancellationReason
+  });
+}

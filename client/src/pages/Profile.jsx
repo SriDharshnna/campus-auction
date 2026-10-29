@@ -153,7 +153,7 @@ export default function Profile() {
           {/* Action Row: Distinct Logout + Navigation to Dashboard */}
           <div className="profile-action-footer">
             <Link to="/dashboard" className="btn btn-secondary btn-dashboard-link">
-              <LayoutDashboard size={16} /> Go to Dashboard (Listings & Bids)
+              <LayoutDashboard size={16} /> Go to My Dashboard
             </Link>
 
             <button

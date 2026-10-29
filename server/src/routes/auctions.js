@@ -3,8 +3,9 @@ import Auction from '../models/Auction.js';
 import Bid, { maskBidderIdentity } from '../models/Bid.js';
 import Transaction from '../models/Transaction.js';
 import { protect } from '../middleware/auth.js';
-import { broadcastBidPlaced, broadcastDeadlineExtended } from '../services/socket.js';
+import { broadcastBidPlaced, broadcastDeadlineExtended, broadcastAuctionCancelled } from '../services/socket.js';
 import { closeAuctionIfDue } from '../services/auctionLifecycle.js';
+import { createNotification } from '../services/notificationService.js';
 
 const router = express.Router();
 
@@ -339,17 +340,36 @@ router.put('/:id', protect, async (req, res) => {
       closingAt
     } = req.body;
 
+    let deadlineExtended = false;
+
     // Fairness rule: prevent changes to financial terms after bidding starts
     if (auction.bidsCount > 0) {
       if (
         (startingPrice && Number(startingPrice) !== auction.startingPrice) ||
         (minIncrement && Number(minIncrement) !== auction.minIncrement) ||
-        (closingAt && new Date(closingAt).getTime() !== auction.closingAt.getTime()) ||
         (title && title.trim() !== auction.title)
       ) {
         return res.status(400).json({
-          message: 'Bids have already been placed on this item. Pricing, title, and deadline terms cannot be altered.'
+          message: 'Bids have already been placed on this item. Pricing and title terms cannot be altered.'
         });
+      }
+
+      // Allow deadline extension even after bids have started
+      if (closingAt) {
+        const newClosing = new Date(closingAt);
+        if (isNaN(newClosing.getTime())) {
+          return res.status(400).json({ message: 'Invalid closing date/time specified.' });
+        }
+        if (newClosing.getTime() <= Date.now()) {
+          return res.status(400).json({ message: 'New deadline must be in the future.' });
+        }
+        if (newClosing.getTime() <= new Date(auction.closingAt).getTime()) {
+          return res.status(400).json({
+            message: 'Extensions only. The new deadline must be later than both the current deadline and server time.'
+          });
+        }
+        auction.closingAt = newClosing;
+        deadlineExtended = true;
       }
     } else {
       // If zero bids, allow editing terms
@@ -371,6 +391,9 @@ router.put('/:id', protect, async (req, res) => {
         if (newClosing.getTime() <= Date.now() + 60 * 1000) {
           return res.status(400).json({ message: 'Closing time must be at least 1 minute into the future.' });
         }
+        if (newClosing.getTime() > new Date(auction.closingAt).getTime()) {
+          deadlineExtended = true;
+        }
         auction.closingAt = newClosing;
       }
     }
@@ -389,6 +412,15 @@ router.put('/:id', protect, async (req, res) => {
     await auction.save();
     await auction.populate('seller', 'name email studentId department');
 
+    if (deadlineExtended) {
+      broadcastDeadlineExtended(auction._id.toString(), {
+        auctionId: auction._id.toString(),
+        closingAt: auction.closingAt.toISOString(),
+        reason: 'manual',
+        message: 'Auction deadline was extended by the seller.'
+      });
+    }
+
     return res.status(200).json({
       message: 'Auction listing updated successfully.',
       auction
@@ -400,12 +432,93 @@ router.put('/:id', protect, async (req, res) => {
 });
 
 /**
+ * @route   POST /api/auctions/:id/extend
+ * @desc    Manual auction deadline extension by seller
+ * @access  Private (Seller only)
+ */
+router.post('/:id/extend', protect, async (req, res) => {
+  try {
+    const { newClosingAt } = req.body;
+
+    if (!newClosingAt) {
+      return res.status(400).json({ message: 'A new closing date and time must be specified.' });
+    }
+
+    const newClosing = new Date(newClosingAt);
+    if (isNaN(newClosing.getTime())) {
+      return res.status(400).json({ message: 'Invalid date-time specified.' });
+    }
+
+    const auction = await Auction.findById(req.params.id);
+    if (!auction) {
+      return res.status(404).json({ message: 'Auction not found.' });
+    }
+
+    // Ownership check
+    if (auction.seller.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Forbidden. You can only extend your own listings.' });
+    }
+
+    // Status check: must be active
+    if (auction.status !== 'active') {
+      return res.status(400).json({ message: `Cannot extend an auction that is ${auction.status}.` });
+    }
+
+    const now = Date.now();
+    const currentClosing = new Date(auction.closingAt).getTime();
+
+    // Guard: active auction must not have already passed closing time
+    if (currentClosing <= now) {
+      return res.status(400).json({ message: 'Cannot extend an auction whose deadline has already expired.' });
+    }
+
+    // Extensions only: strictly later than both current deadline and server time
+    if (newClosing.getTime() <= now) {
+      return res.status(400).json({ message: 'New deadline must be in the future.' });
+    }
+
+    if (newClosing.getTime() <= currentClosing) {
+      return res.status(400).json({
+        message: 'New deadline must be later than the current closing time. Shortening deadlines is not permitted.'
+      });
+    }
+
+    auction.closingAt = newClosing;
+    await auction.save();
+    await auction.populate('seller', 'name email studentId department');
+    await auction.populate('highestBidder', 'name email studentId department');
+
+    // Broadcast deadline extension over Socket.IO
+    broadcastDeadlineExtended(auction._id.toString(), {
+      auctionId: auction._id.toString(),
+      closingAt: newClosing.toISOString(),
+      reason: 'manual',
+      message: 'Auction deadline was extended by the seller.'
+    });
+
+    return res.status(200).json({
+      message: 'Auction deadline extended successfully.',
+      auction
+    });
+  } catch (err) {
+    console.error('[Auction Extend Error]:', err);
+    return res.status(500).json({ message: 'Server error extending auction deadline.' });
+  }
+});
+
+/**
  * @route   DELETE /api/auctions/:id
+ * @route   POST /api/auctions/:id/cancel
  * @desc    Cancel auction listing (Soft delete: preserves audit record)
  * @access  Private (Seller only)
  */
-router.delete('/:id', protect, async (req, res) => {
+const cancelAuctionHandler = async (req, res) => {
   try {
+    const reason = req.body?.reason?.trim();
+    if (!reason) {
+      return res.status(400).json({ message: 'A cancellation reason is required.' });
+    }
+
     const auction = await Auction.findById(req.params.id);
 
     if (!auction) {
@@ -425,10 +538,56 @@ router.delete('/:id', protect, async (req, res) => {
       return res.status(400).json({ message: 'Cannot cancel an already completed sale.' });
     }
 
+    if (auction.status === 'pending_approval') {
+      return res.status(400).json({ message: 'Cannot cancel an auction that has already closed and moved to transaction approval.' });
+    }
+
+    if (auction.status === 'unsold') {
+      return res.status(400).json({ message: 'Cannot cancel an auction that has already ended.' });
+    }
+
+    // Guard: active auction must not have already passed closing time
+    const now = Date.now();
+    if (new Date(auction.closingAt).getTime() <= now) {
+      return res.status(400).json({ message: 'Cannot cancel an auction after the closing deadline has passed.' });
+    }
+
+    // Guard: check if an active transaction already exists
+    const existingTx = await Transaction.findOne({ auction: auction._id });
+    if (existingTx && existingTx.status !== 'cancelled') {
+      return res.status(400).json({ message: 'Cannot cancel an auction that has an active transaction in progress.' });
+    }
+
     // Soft delete: mark cancelled without destroying database history
     auction.status = 'cancelled';
-    auction.cancellationReason = req.body.reason || 'Cancelled by seller';
+    auction.cancellationReason = reason;
     await auction.save();
+
+    // Record the cancellation and notify all bidders
+    try {
+      const bids = await Bid.find({ auction: auction._id }).select('bidder');
+      const bidderIds = [...new Set(bids.map((b) => b.bidder.toString()))];
+      for (const bidderId of bidderIds) {
+        if (bidderId !== req.user._id.toString()) {
+          await createNotification(bidderId, {
+            title: 'Auction Cancelled by Seller',
+            message: `The auction for "${auction.title}" was cancelled by the seller. Reason: "${reason}".`,
+            type: 'sale_cancelled',
+            auctionId: auction._id
+          });
+        }
+      }
+    } catch (notifErr) {
+      console.error('[Cancel Notification Error]:', notifErr.message);
+    }
+
+    // Broadcast real-time Socket.IO event to all clients
+    broadcastAuctionCancelled(auction._id.toString(), {
+      auctionId: auction._id.toString(),
+      status: 'cancelled',
+      cancellationReason: reason,
+      title: auction.title
+    });
 
     return res.status(200).json({
       message: 'Auction cancelled successfully.',
@@ -438,7 +597,10 @@ router.delete('/:id', protect, async (req, res) => {
     console.error('[Auction DELETE Error]:', err);
     return res.status(500).json({ message: 'Server error cancelling auction.' });
   }
-});
+};
+
+router.delete('/:id', protect, cancelAuctionHandler);
+router.post('/:id/cancel', protect, cancelAuctionHandler);
 
 /**
  * @route   POST /api/auctions/:id/questions

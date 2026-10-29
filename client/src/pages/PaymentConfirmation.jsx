@@ -121,7 +121,7 @@ export default function PaymentConfirmation() {
       <div className="payment-page">
         <div className="payment-container">
           <button className="btn-back" onClick={() => navigate('/dashboard')}>
-            <ArrowLeft size={16} /> Back to Dashboard
+            <ArrowLeft size={16} /> Back to My Dashboard
           </button>
           <div className="alert-error" style={{ marginTop: '1rem' }}>
             <AlertCircle size={20} />
@@ -146,7 +146,7 @@ export default function PaymentConfirmation() {
     <div className="payment-page">
       <div className="payment-container">
         <button className="btn-back" onClick={() => navigate('/dashboard')}>
-          <ArrowLeft size={16} /> Back to Dashboard
+          <ArrowLeft size={16} /> Back to My Dashboard
         </button>
 
         <div className="payment-header">
@@ -485,7 +485,7 @@ export default function PaymentConfirmation() {
           <ul style={{ paddingLeft: '1.25rem', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
             <li>Meet in well-lit, public campus locations (e.g. {transaction.pickupLocation}).</li>
             <li>Inspect the item condition thoroughly before completing the physical exchange.</li>
-            <li>Once physically exchanged, confirm the handover on your Dashboard to finalize the auction record.</li>
+            <li>Once physically exchanged, confirm the handover on My Dashboard to finalize the auction record.</li>
           </ul>
         </div>
       </div>

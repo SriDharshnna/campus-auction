@@ -119,7 +119,7 @@ export default function Navbar() {
               className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
             >
               <LayoutDashboard size={15} />
-              <span>Dashboard</span>
+              <span>My Dashboard</span>
             </NavLink>
 
             <NavLink
@@ -277,7 +277,7 @@ export default function Navbar() {
                         onClick={handleNavClick}
                       >
                         <LayoutDashboard size={14} />
-                        <span>Student Dashboard (Listings & Bids)</span>
+                        <span>My Dashboard (Listings & Bids)</span>
                       </Link>
 
                       {/* Separate, clearly labelled Logout action */}
@@ -349,7 +349,7 @@ export default function Navbar() {
               <PlusCircle size={16} /> Create Listing
             </Link>
             <Link to="/dashboard" className="mobile-nav-item" onClick={handleNavClick}>
-              <LayoutDashboard size={16} /> Student Dashboard (Listings & Bids)
+              <LayoutDashboard size={16} /> My Dashboard
             </Link>
             <Link to="/saved-searches" className="mobile-nav-item" onClick={handleNavClick}>
               <Bookmark size={16} /> Saved Searches
