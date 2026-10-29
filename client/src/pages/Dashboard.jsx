@@ -14,7 +14,10 @@ import {
   PlusCircle,
   UserCheck,
   Ban,
-  CreditCard
+  CreditCard,
+  User,
+  Sparkles,
+  MapPin
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
@@ -162,13 +165,13 @@ export default function Dashboard() {
   };
 
   // Derive Module 7 Sections
-  // 1. Pending Seller Decisions: Transactions where currentUser is the seller & status is pending_seller_approval
+  // 1. Pending Seller Decisions: Transactions where currentUser is seller & status is pending_seller_approval
   const pendingDecisions = transactions.filter((t) => {
     const sellerId = t.seller?._id || t.seller?.id || t.seller;
     return sellerId?.toString() === currentUser?.id?.toString() && t.status === 'pending_seller_approval';
   });
 
-  // 2. Active Campus Handovers: Transactions in 'approved' status (reserved for winner) where user is participant
+  // 2. Active Campus Handovers: Transactions in 'approved' status
   const activeHandovers = transactions.filter((t) => t.status === 'approved');
 
   // Filter listings
@@ -221,45 +224,55 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* Module 7: Section 1 - Pending Seller Decisions */}
+        {/* ======================================================== */}
+        {/* SECTION: Pending Seller Decisions (Seller View Only) */}
+        {/* ======================================================== */}
         {pendingDecisions.length > 0 && (
           <div className="module7-section">
             <div className="module7-section-header">
               <AlertTriangle size={20} color="#f59e0b" />
-              <span>Pending Seller Decisions</span>
+              <span>Pending Seller Decisions (Your Listings)</span>
               <span className="module7-badge-count urgent">{pendingDecisions.length} Action Needed</span>
             </div>
             <div className="module7-cards-grid">
               {pendingDecisions.map((tx) => (
-                <div key={tx.id} className="decision-card">
+                <div key={tx.id || tx._id} className="decision-card">
                   <div className="card-top-row">
-                    <span className="card-title-text">{tx.auctionTitle}</span>
-                    <span className="card-status-pill pending">Awaiting Decision</span>
+                    <span className="role-tag-badge seller-badge">
+                      <Sparkles size={11} /> Your Listing
+                    </span>
+                    <span className="card-status-pill pending">Approval Status: Pending Your Decision</span>
                   </div>
+
+                  <h4 className="card-title-text">{tx.auctionTitle}</h4>
+
                   <div className="card-details-grid">
                     <div className="card-detail-item">
                       <span className="detail-label">Winning Bid</span>
                       <span className="detail-val price">₹{(tx.finalPrice || 0).toLocaleString('en-IN')}</span>
                     </div>
                     <div className="card-detail-item">
-                      <span className="detail-label">Buyer</span>
-                      <span className="detail-val">{tx.buyerName || tx.buyer?.name || 'Student'} ({tx.buyerRoll || tx.buyer?.studentId || 'Verified'})</span>
+                      <span className="detail-label">Winning Bidder</span>
+                      <span className="detail-val bidder-name-highlight">
+                        {tx.buyerName || tx.buyer?.name || 'Student'} ({tx.buyerRoll || tx.buyer?.studentId || 'Verified'})
+                      </span>
                     </div>
                     <div className="card-detail-item" style={{ gridColumn: 'span 2' }}>
                       <span className="detail-label">Designated Handover Spot</span>
                       <span className="detail-val">{tx.pickupLocation}</span>
                     </div>
                   </div>
+
                   <div className="card-action-bar">
                     <button
                       className="btn-reject"
-                      onClick={() => handleRejectSale(tx.id)}
+                      onClick={() => handleRejectSale(tx.id || tx._id)}
                     >
                       <X size={14} /> Reject Bid
                     </button>
                     <button
                       className="btn-approve"
-                      onClick={() => handleApproveSale(tx.id)}
+                      onClick={() => handleApproveSale(tx.id || tx._id)}
                     >
                       <Check size={14} /> Approve & Reserve
                     </button>
@@ -270,7 +283,9 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Module 7: Section 2 - Active Campus Handovers */}
+        {/* ======================================================== */}
+        {/* SECTION: Scheduled Campus Handovers (Seller & Bidder Views) */}
+        {/* ======================================================== */}
         {activeHandovers.length > 0 && (
           <div className="module7-section">
             <div className="module7-section-header">
@@ -284,51 +299,89 @@ export default function Dashboard() {
                 const isSeller = sellerId?.toString() === currentUser?.id?.toString();
                 const otherName = isSeller ? (tx.buyerName || tx.buyer?.name) : (tx.sellerName || tx.seller?.name);
                 const otherRoll = isSeller ? (tx.buyerRoll || tx.buyer?.studentId) : (tx.sellerRoll || tx.seller?.studentId);
+
                 return (
-                  <div key={tx.id} className="handover-card">
+                  <div key={tx.id || tx._id} className="handover-card">
                     <div className="card-top-row">
-                      <span className="card-title-text">{tx.auctionTitle}</span>
-                      <span className="card-status-pill approved">Item Reserved</span>
+                      {isSeller ? (
+                        <span className="role-tag-badge seller-badge">
+                          <Sparkles size={11} /> Your Listing (Seller View)
+                        </span>
+                      ) : (
+                        <span className="role-tag-badge bidder-badge">
+                          <User size={11} /> Your Purchase (Bidder View)
+                        </span>
+                      )}
+                      <span className="card-status-pill approved">
+                        Approval Status: Approved (Reserved)
+                      </span>
                     </div>
+
+                    <h4 className="card-title-text">{tx.auctionTitle}</h4>
+
                     <div className="card-details-grid">
                       <div className="card-detail-item">
-                        <span className="detail-label">Agreed Amount</span>
+                        <span className="detail-label">
+                          {isSeller ? 'Current Highest Bid' : 'Your Winning Bid'}
+                        </span>
                         <span className="detail-val price">₹{(tx.finalPrice || 0).toLocaleString('en-IN')}</span>
                       </div>
+
                       <div className="card-detail-item">
-                        <span className="detail-label">{isSeller ? 'Meeting Buyer' : 'Meeting Seller'}</span>
-                        <span className="detail-val">{otherName} ({otherRoll})</span>
+                        <span className="detail-label">
+                          {isSeller ? 'Winning Bidder' : 'Seller'}
+                        </span>
+                        <span className="detail-val">
+                          <strong>{otherName}</strong> ({otherRoll || 'Verified Student'})
+                        </span>
                       </div>
+
                       <div className="card-detail-item">
                         <span className="detail-label">Handover Meeting Spot</span>
-                        <span className="detail-val">{tx.pickupLocation}</span>
+                        <span className="detail-val">
+                          <MapPin size={12} style={{ display: 'inline', marginRight: '4px' }} />
+                          {tx.pickupLocation}
+                        </span>
                       </div>
+
                       <div className="card-detail-item">
                         <span className="detail-label">Payment Status</span>
-                        <span className="detail-val" style={{ color: tx.payment?.status === 'PAID' ? '#10b981' : '#f59e0b' }}>
-                          {tx.payment?.status ? `${tx.payment.status} (${tx.payment.method || 'Unselected'})` : 'Awaiting Payment Selection'}
+                        <span
+                          className="detail-val"
+                          style={{ color: tx.payment?.status === 'PAID' ? '#10b981' : '#f59e0b', fontWeight: 600 }}
+                        >
+                          {tx.payment?.status
+                            ? `${tx.payment.status} (${tx.payment.method || 'Method Unselected'})`
+                            : 'Awaiting Payment Selection'}
                         </span>
                       </div>
                     </div>
+
                     <div className="card-action-bar">
                       {!isSeller && tx.payment?.status !== 'PAID' && (
                         <Link
-                          to={`/payment/${tx.id}`}
+                          to={`/payment/${tx.id || tx._id}`}
                           className="btn btn-primary"
-                          style={{ padding: '0.4rem 0.85rem', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                          style={{
+                            padding: '0.45rem 0.9rem',
+                            fontSize: '0.8rem',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.35rem'
+                          }}
                         >
                           <CreditCard size={14} /> {tx.payment?.method ? 'Verify / Change Payment' : 'Confirm Payment'}
                         </Link>
                       )}
                       <button
                         className="btn-report-fail"
-                        onClick={() => handleReportFailedPickup(tx.id)}
+                        onClick={() => handleReportFailedPickup(tx.id || tx._id)}
                       >
                         <Ban size={13} /> Report Failed Pickup
                       </button>
                       <button
                         className="btn-confirm-handover"
-                        onClick={() => handleConfirmHandover(tx.id)}
+                        onClick={() => handleConfirmHandover(tx.id || tx._id)}
                       >
                         <CheckCircle size={14} /> Confirm Handover
                       </button>
@@ -358,7 +411,9 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {/* TAB 1: MY LISTINGS */}
+        {/* ======================================================== */}
+        {/* TAB 1: MY LISTINGS (Seller View) */}
+        {/* ======================================================== */}
         {activeTab === 'listings' && (
           <div className="dashboard-content">
             {/* Filter Pills */}
@@ -395,7 +450,7 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* Listings Table */}
+            {/* Listings Table - Clearly Labelled for Seller */}
             {loadingListings ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem 0' }}>
                 <LoadingSpinner size="md" message="Loading your campus listings..." />
@@ -409,11 +464,11 @@ export default function Dashboard() {
                 <table className="dash-table">
                   <thead>
                     <tr>
-                      <th>Item</th>
-                      <th>Category</th>
-                      <th>Current / Final Bid</th>
-                      <th>Bids</th>
-                      <th>Status</th>
+                      <th>Your Listing</th>
+                      <th>Starting Price</th>
+                      <th>Current Highest Bid</th>
+                      <th>Highest Bidder</th>
+                      <th>Approval Status</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
@@ -421,36 +476,55 @@ export default function Dashboard() {
                     {filteredListings.map((item) => {
                       const linkedTx = transactions.find((t) => {
                         const aucId = t.auction?._id || t.auction?.id || t.auction;
-                        return aucId?.toString() === item.id?.toString();
+                        return aucId?.toString() === (item.id || item._id)?.toString();
                       });
 
+                      const bidderDisplayName =
+                        item.highestBidderName ||
+                        (item.highestBidder && typeof item.highestBidder === 'object' && item.highestBidder.name) ||
+                        (linkedTx?.buyerName || linkedTx?.buyer?.name) ||
+                        (item.bidsCount > 0 ? 'Leading Bidder' : 'No bids yet');
+
                       return (
-                        <tr key={item.id}>
+                        <tr key={item.id || item._id}>
                           <td>
                             <div className="table-item-cell">
+                              <span className="role-tag-badge seller-badge" style={{ width: 'fit-content', padding: '0.1rem 0.45rem', fontSize: '0.68rem', marginBottom: '0.2rem' }}>
+                                Your Listing
+                              </span>
                               <strong>{item.title}</strong>
-                              <span className="table-subtext">Pickup: {item.pickupLocation}</span>
+                              <span className="table-subtext">Category: {item.category} &bull; Spot: {item.pickupLocation}</span>
                             </div>
                           </td>
                           <td>
-                            <span className="category-tag">{item.category}</span>
+                            <span className="table-start-price">₹{(item.startingPrice || 0).toLocaleString('en-IN')}</span>
                           </td>
                           <td>
                             <strong className="table-price">₹{(item.currentPrice || 0).toLocaleString('en-IN')}</strong>
-                            <span className="table-subtext">Start: ₹{item.startingPrice}</span>
+                            <span className="table-subtext">{item.bidsCount || 0} bids</span>
                           </td>
-                          <td>{item.bidsCount || 0} bids</td>
                           <td>
-                            <StatusBadge status={item.status} />
+                            <span className={`table-bidder-cell ${item.bidsCount > 0 ? 'has-bids' : 'no-bids'}`}>
+                              {bidderDisplayName}
+                            </span>
+                          </td>
+                          <td>
+                            {item.status === 'pending_approval' ? (
+                              <span className="card-status-pill pending" style={{ fontSize: '0.74rem' }}>
+                                Approval Status: Pending
+                              </span>
+                            ) : (
+                              <StatusBadge status={item.status} />
+                            )}
                           </td>
                           <td>
                             <div className="table-action-group">
-                              <Link to={`/auctions/${item.id}`} className="btn-table-action" title="View details">
+                              <Link to={`/auctions/${item.id || item._id}`} className="btn-table-action" title="View details">
                                 <ArrowUpRight size={15} />
                               </Link>
 
                               {item.status === 'active' && (!item.bidsCount || item.bidsCount === 0) && (
-                                <Link to={`/edit-listing/${item.id}`} className="btn-table-action" title="Edit listing">
+                                <Link to={`/edit-listing/${item.id || item._id}`} className="btn-table-action" title="Edit listing">
                                   <Edit size={15} />
                                 </Link>
                               )}
@@ -458,7 +532,7 @@ export default function Dashboard() {
                               {item.status === 'active' && (
                                 <button
                                   className="btn-table-action"
-                                  onClick={() => handleCancelListing(item.id)}
+                                  onClick={() => handleCancelListing(item.id || item._id)}
                                   title="Cancel auction listing"
                                   style={{ color: '#ef4444' }}
                                 >
@@ -471,14 +545,14 @@ export default function Dashboard() {
                                 <div className="approval-btn-group">
                                   <button
                                     className="btn-approve"
-                                    onClick={() => handleApproveSale(linkedTx.id)}
+                                    onClick={() => handleApproveSale(linkedTx.id || linkedTx._id)}
                                     title="Approve Winning Bid"
                                   >
                                     <Check size={14} /> Approve
                                   </button>
                                   <button
                                     className="btn-reject"
-                                    onClick={() => handleRejectSale(linkedTx.id)}
+                                    onClick={() => handleRejectSale(linkedTx.id || linkedTx._id)}
                                     title="Reject Bid"
                                   >
                                     <X size={14} /> Reject
@@ -510,7 +584,9 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* TAB 2: MY BIDS */}
+        {/* ======================================================== */}
+        {/* TAB 2: MY BIDS (Bidder View) */}
+        {/* ======================================================== */}
         {activeTab === 'bids' && (
           <div className="dashboard-content">
             {/* Filter Pills */}
@@ -541,7 +617,7 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* Bids Table */}
+            {/* Bids Table - Clearly Labelled for Bidder */}
             {loadingBids ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem 0' }}>
                 <LoadingSpinner size="md" message="Loading your campus bids..." />
@@ -552,10 +628,11 @@ export default function Dashboard() {
                   <thead>
                     <tr>
                       <th>Auction Item</th>
-                      <th>My Bid</th>
-                      <th>Current Leader</th>
-                      <th>Status</th>
-                      <th>Handover</th>
+                      <th>Seller</th>
+                      <th>Your Bid</th>
+                      <th>Current Highest Bid</th>
+                      <th>Your Winning Status</th>
+                      <th>Campus Handover</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
@@ -571,13 +648,32 @@ export default function Dashboard() {
                             </div>
                           </td>
                           <td>
+                            <span className="table-seller-name">
+                              {bid.sellerName || 'Campus Student'}
+                            </span>
+                          </td>
+                          <td>
                             <strong className="table-price">₹{(bid.myBidAmount || 0).toLocaleString('en-IN')}</strong>
                           </td>
                           <td>
                             <strong className="table-price-leader">₹{(bid.currentLeadingPrice || 0).toLocaleString('en-IN')}</strong>
                           </td>
                           <td>
-                            <StatusBadge status={bid.status} />
+                            {bid.status === 'winning' ? (
+                              <span className="role-tag-badge winner-badge" style={{ fontSize: '0.74rem' }}>
+                                Leading Bidder
+                              </span>
+                            ) : bid.status === 'outbid' ? (
+                              <span className="role-tag-badge outbid-badge" style={{ fontSize: '0.74rem' }}>
+                                Outbid
+                              </span>
+                            ) : bid.status === 'won' ? (
+                              <span className="role-tag-badge winner-badge" style={{ fontSize: '0.74rem' }}>
+                                Won Auction
+                              </span>
+                            ) : (
+                              <StatusBadge status={bid.status} />
+                            )}
                           </td>
                           <td>
                             {tx?.status === 'approved' ? (
@@ -607,7 +703,7 @@ export default function Dashboard() {
                                 <CheckCircle size={13} /> Handover Done
                               </span>
                             ) : bid.status === 'awaiting_approval' ? (
-                              <span className="table-subtext">Awaiting Seller</span>
+                              <span className="table-subtext">Awaiting Seller Approval</span>
                             ) : (
                               <span className="table-subtext">{bid.status === 'winning' ? 'Leading' : 'Pending close'}</span>
                             )}

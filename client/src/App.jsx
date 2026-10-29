@@ -14,6 +14,7 @@ import Notifications from './pages/Notifications';
 import SavedSearches from './pages/SavedSearches';
 import AIAssistant from './pages/AIAssistant';
 import PaymentConfirmation from './pages/PaymentConfirmation';
+import Profile from './pages/Profile';
 
 import './App.css';
 
@@ -78,6 +79,15 @@ function AppRoutes() {
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <Profile />
               </ProtectedRoute>
             }
           />

@@ -46,6 +46,11 @@ const userSchema = new mongoose.Schema(
         return 'Engineering';
       }
     },
+    role: {
+      type: String,
+      enum: ['Student', 'Faculty', 'Admin'],
+      default: 'Student'
+    },
     password: {
       type: String,
       required: [true, 'Password is required'],

@@ -54,7 +54,9 @@ export function broadcastBidPlaced(auctionId, payload) {
     auctionId,
     currentPrice: payload.currentPrice,
     bidsCount: payload.bidsCount,
-    closingAt: payload.closingAt
+    closingAt: payload.closingAt,
+    highestBidderName: payload.highestBidderName,
+    highestBidder: payload.highestBidder
   });
 }
 

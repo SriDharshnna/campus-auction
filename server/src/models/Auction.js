@@ -137,6 +137,11 @@ const auctionSchema = new mongoose.Schema(
       type: String,
       default: null
     },
+    highestBidderName: {
+      type: String,
+      default: null,
+      trim: true
+    },
     highestBid: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Bid',
@@ -196,6 +201,14 @@ auctionSchema.index({ currentPrice: 1 });
 
 // Helper to normalize JSON output
 auctionSchema.set('toJSON', {
+  transform: function (doc, ret) {
+    ret.id = ret._id;
+    delete ret.__v;
+    return ret;
+  }
+});
+
+auctionSchema.set('toObject', {
   transform: function (doc, ret) {
     ret.id = ret._id;
     delete ret.__v;

@@ -1,6 +1,7 @@
 import express from 'express';
 import Auction from '../models/Auction.js';
 import Bid, { maskBidderIdentity } from '../models/Bid.js';
+import Transaction from '../models/Transaction.js';
 import { protect } from '../middleware/auth.js';
 import { broadcastBidPlaced, broadcastDeadlineExtended } from '../services/socket.js';
 import { closeAuctionIfDue } from '../services/auctionLifecycle.js';
@@ -117,7 +118,31 @@ router.get('/', async (req, res) => {
       sortOptions = { createdAt: -1 };
     }
 
-    const auctions = await Auction.find(query).sort(sortOptions);
+    const rawAuctions = await Auction.find(query)
+      .populate('seller', 'name email studentId department')
+      .populate('highestBidder', 'name email studentId department')
+      .sort(sortOptions);
+
+    const auctions = await Promise.all(
+      rawAuctions.map(async (auc) => {
+        const item = auc.toJSON ? auc.toJSON() : (auc.toObject ? auc.toObject() : auc);
+        if (item._id && !item.id) {
+          item.id = item._id.toString();
+        }
+        if (item.bidsCount > 0 && !item.highestBidderName) {
+          if (item.highestBidder && typeof item.highestBidder === 'object' && item.highestBidder.name) {
+            item.highestBidderName = item.highestBidder.name;
+          } else {
+            const topBid = await Bid.findOne({ auction: item._id || item.id }).sort({ amount: -1, createdAt: 1 });
+            if (topBid?.bidderName) {
+              item.highestBidderName = topBid.bidderName;
+            }
+          }
+        }
+        return item;
+      })
+    );
+
     const total = await Auction.countDocuments(query);
 
     return res.status(200).json({
@@ -137,10 +162,9 @@ router.get('/', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
-    let auction = await Auction.findById(req.params.id).populate(
-      'seller',
-      'name email studentId department'
-    );
+    let auction = await Auction.findById(req.params.id)
+      .populate('seller', 'name email studentId department')
+      .populate('highestBidder', 'name email studentId department');
 
     if (!auction) {
       return res.status(404).json({ message: 'Auction item not found.' });
@@ -150,14 +174,35 @@ router.get('/:id', async (req, res) => {
     if (auction.status === 'active' && new Date(auction.closingAt).getTime() <= Date.now()) {
       const closed = await closeAuctionIfDue(auction._id);
       if (closed) {
-        auction = await Auction.findById(req.params.id).populate(
-          'seller',
-          'name email studentId department'
-        );
+        auction = await Auction.findById(req.params.id)
+          .populate('seller', 'name email studentId department')
+          .populate('highestBidder', 'name email studentId department');
       }
     }
 
-    return res.status(200).json({ auction });
+    // Resolve highestBidderName if missing but bids exist
+    if (auction && auction.bidsCount > 0 && !auction.highestBidderName) {
+      if (auction.highestBidder && typeof auction.highestBidder === 'object' && auction.highestBidder.name) {
+        auction.highestBidderName = auction.highestBidder.name;
+      } else {
+        const topBid = await Bid.findOne({ auction: auction._id }).sort({ amount: -1, createdAt: 1 });
+        if (topBid?.bidderName) {
+          auction.highestBidderName = topBid.bidderName;
+        }
+      }
+    }
+
+    // Module 7: Lookup associated transaction (if closed/sold/reserved)
+    let transaction = null;
+    try {
+      transaction = await Transaction.findOne({ auction: auction._id })
+        .populate('seller', 'name email studentId department')
+        .populate('buyer', 'name email studentId department');
+    } catch (txErr) {
+      console.warn('[Auction GET ID] Transaction lookup warning:', txErr.message);
+    }
+
+    return res.status(200).json({ auction, transaction });
   } catch (err) {
     if (err.kind === 'ObjectId') {
       return res.status(404).json({ message: 'Auction item not found.' });
@@ -508,6 +553,7 @@ router.post('/:id/bids', protect, async (req, res) => {
       $set: {
         currentPrice: numAmount,
         highestBidder: req.user._id,
+        highestBidderName: req.user.name,
         highestBidderMasked: maskedBidder,
         lastBidAt: now
       },
@@ -527,7 +573,8 @@ router.post('/:id/bids', protect, async (req, res) => {
     }
 
     const updatedAuction = await Auction.findOneAndUpdate(atomicCondition, atomicUpdate, { new: true })
-      .populate('seller', 'name email studentId department');
+      .populate('seller', 'name email studentId department')
+      .populate('highestBidder', 'name email studentId department');
 
     if (!updatedAuction) {
       // Fetch latest state to report accurate minimum next bid to the outbid competitor
@@ -572,6 +619,11 @@ router.post('/:id/bids', protect, async (req, res) => {
       bidsCount: updatedAuction.bidsCount,
       closingAt: updatedAuction.closingAt,
       minNextBid: numAmount + updatedAuction.minIncrement,
+      highestBidderName: req.user.name,
+      highestBidder: {
+        _id: req.user._id,
+        name: req.user.name
+      },
       highestBidderMasked: maskedBidder,
       bid: bidRecord
     });
@@ -603,7 +655,7 @@ router.get('/:id/bids', async (req, res) => {
     // Never project email, full studentId or internal user credentials (Rule 6)
     const bids = await Bid.find({ auction: req.params.id })
       .sort({ createdAt: -1 })
-      .select('amount bidderMasked createdAt');
+      .select('amount bidderMasked bidderName createdAt');
 
     return res.status(200).json({
       bids,

@@ -61,7 +61,11 @@ router.get('/my-bids', protect, async (req, res) => {
     const userBids = await Bid.find({ bidder: userId })
       .populate({
         path: 'auction',
-        select: 'title category condition imageUrl pickupLocation status currentPrice startingPrice closingAt highestBidder highestBidderMasked provisionalWinner winningAmount'
+        select: 'title category condition imageUrl pickupLocation status currentPrice startingPrice closingAt highestBidder highestBidderMasked provisionalWinner winningAmount seller sellerName',
+        populate: {
+          path: 'seller',
+          select: 'name studentId department'
+        }
       })
       .sort({ createdAt: -1 });
 
@@ -113,6 +117,8 @@ router.get('/my-bids', protect, async (req, res) => {
         status = 'closed';
       }
 
+      const resolvedSellerName = (a.seller && typeof a.seller === 'object' && a.seller.name) || a.sellerName || 'Campus Student';
+
       result.push({
         id: `bid-agg-${aucId}`,
         auctionId: aucId,
@@ -121,6 +127,7 @@ router.get('/my-bids', protect, async (req, res) => {
         imageUrl: a.imageUrl,
         pickupLocation: a.pickupLocation,
         closingAt: a.closingAt,
+        sellerName: resolvedSellerName,
         myBidAmount: data.highestUserBid,
         currentLeadingPrice: a.currentPrice,
         auctionStatus: a.status,

@@ -175,45 +175,130 @@ export default function PaymentConfirmation() {
           </div>
         )}
 
-        {/* Item Summary Card */}
-        <div className="payment-summary-card">
-          <div className="summary-top">
-            <div className="summary-title-group">
-              <h2>{transaction.auctionTitle}</h2>
-              <div className="summary-tags">
-                <span className="category-tag">{transaction.auction?.category || 'Auction Item'}</span>
-                <span className="card-status-pill approved">Item Reserved</span>
-              </div>
+        {/* Organized 3-Section Layout */}
+        <div className="payment-sections-wrapper">
+          {/* Section 1: Item and Seller Information */}
+          <div className="payment-section-box">
+            <div className="payment-section-header">
+              <span className="section-badge-num">1</span>
+              <h3>Item and Seller Information</h3>
+              {isSeller ? (
+                <span className="role-tag-badge seller-badge">Your Listing</span>
+              ) : (
+                <span className="role-tag-badge bidder-badge">
+                  Seller: <strong>{transaction.sellerName || transaction.seller?.name || 'Campus Student'}</strong>
+                </span>
+              )}
             </div>
 
-            <div className="summary-price-box">
-              <div className="summary-price-label">Approved Winning Price</div>
-              <div className="summary-price-val">₹{finalPrice.toLocaleString('en-IN')}</div>
+            <div className="payment-section-content">
+              <div className="summary-title-group">
+                <h2>{transaction.auctionTitle}</h2>
+                <div className="summary-tags">
+                  <span className="category-tag">{transaction.auction?.category || 'Auction Item'}</span>
+                  <span className="badge-condition">{transaction.auction?.condition || 'Inspected'}</span>
+                </div>
+              </div>
+
+              <div className="summary-meta-grid">
+                <div className="meta-field">
+                  <span className="meta-label">
+                    {isSeller ? 'Your Listing Account' : 'Listing Seller'}
+                  </span>
+                  <span className="meta-val">
+                    <User size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
+                    {isSeller
+                      ? `${transaction.sellerName || transaction.seller?.name || 'You'} (You)`
+                      : `${transaction.sellerName || transaction.seller?.name || 'Student'} (${transaction.sellerRoll || transaction.seller?.studentId || 'Verified'})`}
+                  </span>
+                </div>
+
+                <div className="meta-field">
+                  <span className="meta-label">Starting Price</span>
+                  <span className="meta-val">
+                    ₹{(transaction.auction?.startingPrice || 0).toLocaleString('en-IN')}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="summary-meta-grid">
-            <div className="meta-field">
-              <span className="meta-label">Campus Handover Spot</span>
-              <span className="meta-val">
-                <MapPin size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
-                {transaction.pickupLocation}
-              </span>
+          {/* Section 2: Bidding Information */}
+          <div className="payment-section-box">
+            <div className="payment-section-header">
+              <span className="section-badge-num">2</span>
+              <h3>Bidding Information</h3>
+              {isSeller ? (
+                <span className="role-tag-badge seller-badge">Winning Bidder Selected</span>
+              ) : (
+                <span className="role-tag-badge winner-badge">
+                  Your Winning Status: <strong>Highest Bidder</strong>
+                </span>
+              )}
             </div>
 
-            <div className="meta-field">
-              <span className="meta-label">Listing Seller</span>
-              <span className="meta-val">
-                <User size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
-                {transaction.sellerName || transaction.seller?.name} ({transaction.sellerRoll || transaction.seller?.studentId || 'Verified'})
-              </span>
+            <div className="payment-section-content">
+              <div className="summary-meta-grid">
+                <div className="meta-field">
+                  <span className="meta-label">
+                    {isSeller ? 'Winning Bid' : 'Your Winning Bid / Current Highest Bid'}
+                  </span>
+                  <span className="meta-val price-highlight">
+                    ₹{finalPrice.toLocaleString('en-IN')}
+                  </span>
+                </div>
+
+                <div className="meta-field">
+                  <span className="meta-label">
+                    {isSeller ? 'Winning Bidder' : 'Highest Bidder'}
+                  </span>
+                  <span className="meta-val bidder-highlight">
+                    {isBuyer
+                      ? `${transaction.buyerName || transaction.buyer?.name || 'You'} (You)`
+                      : `${transaction.buyerName || transaction.buyer?.name || 'Student'} (${transaction.buyerRoll || transaction.buyer?.studentId || 'Verified'})`}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 3: Transaction Information */}
+          <div className="payment-section-box transaction-highlight-box">
+            <div className="payment-section-header">
+              <span className="section-badge-num">3</span>
+              <h3>Transaction Information</h3>
+              <span className="card-status-pill approved">Item Reserved</span>
             </div>
 
-            <div className="meta-field">
-              <span className="meta-label">Winning Buyer</span>
-              <span className="meta-val">
-                {transaction.buyerName || transaction.buyer?.name} ({transaction.buyerRoll || transaction.buyer?.studentId || 'You'})
-              </span>
+            <div className="payment-section-content">
+              <div className="summary-meta-grid">
+                <div className="meta-field">
+                  <span className="meta-label">Seller Approval Status</span>
+                  <span className="meta-val status-approved">
+                    <CheckCircle2 size={14} style={{ verticalAlign: 'middle', marginRight: '4px', color: '#10b981' }} />
+                    Approved by Seller (Reserved)
+                  </span>
+                </div>
+
+                <div className="meta-field">
+                  <span className="meta-label">Payment Status</span>
+                  <span className="meta-val">
+                    {isPaid ? (
+                      <span className="payment-pill paid">PAID ({payment.method})</span>
+                    ) : (
+                      <span className="payment-pill pending">PENDING ({payment.method || 'Selection Needed'})</span>
+                    )}
+                  </span>
+                </div>
+
+                <div className="meta-field" style={{ gridColumn: 'span 2' }}>
+                  <span className="meta-label">Campus Handover Location</span>
+                  <span className="meta-val">
+                    <MapPin size={14} style={{ verticalAlign: 'middle', marginRight: '4px', color: '#38bdf8' }} />
+                    {transaction.pickupLocation}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>

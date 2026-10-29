@@ -102,6 +102,8 @@ export default function Home() {
                 currentPrice: payload.currentPrice !== undefined ? payload.currentPrice : auc.currentPrice,
                 bidsCount: payload.bidsCount !== undefined ? payload.bidsCount : auc.bidsCount,
                 closingAt: payload.closingAt || auc.closingAt,
+                highestBidderName: payload.highestBidderName !== undefined ? payload.highestBidderName : auc.highestBidderName,
+                highestBidder: payload.highestBidder !== undefined ? payload.highestBidder : auc.highestBidder,
                 status: payload.status || auc.status
               };
             }

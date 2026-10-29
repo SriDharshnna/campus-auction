@@ -536,3 +536,30 @@
   border-color: #ef4444;
 }
 
+.table-start-price {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.table-bidder-cell.has-bids {
+  color: #34d399;
+  font-weight: 600;
+}
+
+.table-bidder-cell.no-bids {
+  color: #94a3b8;
+  font-style: italic;
+  font-size: 0.8rem;
+}
+
+.table-seller-name {
+  color: #e2e8f0;
+  font-weight: 600;
+}
+
+.bidder-name-highlight {
+  color: #34d399;
+  font-weight: 700;
+}
+

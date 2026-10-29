@@ -66,7 +66,6 @@ bidSchema.set('toJSON', {
   transform: function (doc, ret) {
     ret.id = ret._id;
     delete ret.__v;
-    delete ret.bidderName;
     delete ret.bidderRoll;
     delete ret.bidder; // Exclude internal user reference from public JSON
     return ret;

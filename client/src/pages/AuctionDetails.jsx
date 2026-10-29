@@ -12,7 +12,16 @@ import {
   Share2,
   Bookmark,
   Gavel,
-  Edit
+  Edit,
+  User,
+  Sparkles,
+  CheckCircle,
+  XCircle,
+  CreditCard,
+  Handshake,
+  Check,
+  X,
+  Calendar
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
@@ -28,6 +37,7 @@ export default function AuctionDetails() {
   const { currentUser } = useAuth();
 
   const [auction, setAuction] = useState(null);
+  const [transaction, setTransaction] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -43,42 +53,36 @@ export default function AuctionDetails() {
   const [askingQuestion, setAskingQuestion] = useState(false);
   const [saved, setSaved] = useState(false);
   const [activeImgUrl, setActiveImgUrl] = useState(null);
+  const [txActionLoading, setTxActionLoading] = useState(false);
+
+  const fetchAuctionData = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const [resAuction, resBids] = await Promise.all([
+        api.getAuctionById(id),
+        api.getBidHistory(id).catch(() => ({ bids: [] }))
+      ]);
+      const loaded = resAuction.auction;
+      setAuction(loaded);
+      setTransaction(resAuction.transaction || null);
+      setQuestionList(loaded.questions || []);
+      setBidHistory(resBids?.bids || []);
+      if (loaded.imageUrl) {
+        setActiveImgUrl(loaded.imageUrl);
+      }
+    } catch (err) {
+      console.error('Error fetching auction:', err);
+      setError(err.message || 'Auction listing not found.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let isMounted = true;
-    const fetchAuctionData = async () => {
-      try {
-        setLoading(true);
-        setError('');
-        const [resAuction, resBids] = await Promise.all([
-          api.getAuctionById(id),
-          api.getBidHistory(id).catch(() => ({ bids: [] }))
-        ]);
-        if (isMounted) {
-          const loaded = resAuction.auction;
-          setAuction(loaded);
-          setQuestionList(loaded.questions || []);
-          setBidHistory(resBids?.bids || []);
-        }
-      } catch (err) {
-        console.error('Error fetching auction:', err);
-        if (isMounted) {
-          setError(err.message || 'Auction listing not found.');
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
     if (id) {
       fetchAuctionData();
     }
-
-    return () => {
-      isMounted = false;
-    };
   }, [id]);
 
   // Real-time Socket.IO live updates listener
@@ -94,6 +98,8 @@ export default function AuctionDetails() {
           currentPrice: payload.currentPrice,
           bidsCount: payload.bidsCount,
           closingAt: payload.closingAt || prev.closingAt,
+          highestBidderName: payload.highestBidderName || prev.highestBidderName,
+          highestBidder: payload.highestBidder || prev.highestBidder,
           highestBidderMasked: payload.highestBidderMasked || prev.highestBidderMasked
         };
       });
@@ -126,9 +132,13 @@ export default function AuctionDetails() {
           ...prev,
           status: payload.status,
           winningAmount: payload.winningAmount,
+          provisionalWinnerName: payload.provisionalWinnerName || prev.provisionalWinnerName,
+          highestBidderName: payload.highestBidderName || payload.provisionalWinnerName || prev.highestBidderName,
           provisionalWinnerMasked: payload.provisionalWinnerMasked
         };
       });
+      // Refresh to fetch newly created transaction
+      fetchAuctionData();
     };
 
     socket.on('auction:bid', handleRealtimeBid);
@@ -143,21 +153,47 @@ export default function AuctionDetails() {
     };
   }, [id]);
 
+  // Derived user roles & labels
+  const isSeller = currentUser && auction && (
+    (typeof auction.seller === 'object' && (auction.seller?.id === currentUser.id || auction.seller?._id === currentUser.id)) ||
+    auction.seller === currentUser.id
+  );
+
+  const resolvedBidderName =
+    auction?.highestBidderName ||
+    (auction?.highestBidder && typeof auction.highestBidder === 'object' && auction.highestBidder.name
+      ? auction.highestBidder.name
+      : null);
+
+  const isWinningBidder = currentUser && (
+    (resolvedBidderName && resolvedBidderName === currentUser.name) ||
+    (typeof auction?.highestBidder === 'object' && (auction.highestBidder?._id === currentUser.id || auction.highestBidder?.id === currentUser.id)) ||
+    auction?.highestBidder === currentUser.id ||
+    (transaction && (transaction.buyer?._id === currentUser.id || transaction.buyer?.id === currentUser.id || transaction.buyer === currentUser.id))
+  );
+
+  const resolvedSellerName = auction?.seller?.name || auction?.sellerName || 'Campus Student';
+  const resolvedSellerDept = auction?.seller?.department || auction?.sellerDepartment;
+  const resolvedSellerRoll = auction?.seller?.studentId || auction?.sellerRoll || auction?.seller?.rollNumber;
+
   const minNextBid = auction
     ? ((auction.bidsCount === 0 || !auction.bidsCount)
       ? auction.startingPrice
-      : auction.currentPrice + auction.minIncrement)
+      : auction.currentPrice + (auction.minIncrement || 50))
     : 0;
-
-  const isSeller = currentUser && auction && (
-    (typeof auction.seller === 'object' && auction.seller?.id === currentUser.id) ||
-    auction.seller === currentUser.id
-  );
 
   const isClosed = auction && (
     auction.status !== 'active' ||
     new Date().getTime() >= new Date(auction.closingAt).getTime()
   );
+
+  // User's own highest bid on this item
+  const myBidsOnItem = bidHistory.filter((b) => {
+    if (!currentUser) return false;
+    const bId = b.bidder?._id || b.bidder?.id || b.bidder;
+    return bId === currentUser.id || b.bidderName === currentUser.name;
+  });
+  const myHighestBid = myBidsOnItem.length > 0 ? Math.max(...myBidsOnItem.map((b) => b.amount)) : null;
 
   const handleBidSubmit = async (e) => {
     e.preventDefault();
@@ -200,7 +236,6 @@ export default function AuctionDetails() {
       if (res.bid) {
         setBidHistory((prev) => [res.bid, ...prev]);
       } else {
-        // Refresh bid history
         const updatedBids = await api.getBidHistory(id);
         if (updatedBids?.bids) {
           setBidHistory(updatedBids.bids);
@@ -245,6 +280,58 @@ export default function AuctionDetails() {
     }
   };
 
+  // Transaction action handlers
+  const handleApproveSale = async (txId) => {
+    try {
+      setTxActionLoading(true);
+      await api.approveTransaction(txId);
+      alert('Winning bid approved! The item is now reserved for campus handover.');
+      fetchAuctionData();
+    } catch (err) {
+      alert(err.message || 'Failed to approve winning bid.');
+    } finally {
+      setTxActionLoading(false);
+    }
+  };
+
+  const handleRejectSale = async (txId) => {
+    const reason = window.prompt(
+      'Please provide a reason for rejecting the provisional winning bid:',
+      'Minimum reserve price expectation not met'
+    );
+    if (reason === null) return;
+
+    try {
+      setTxActionLoading(true);
+      await api.rejectTransaction(txId, reason);
+      alert('Winning bid rejected. Auction outcome recorded as unsold.');
+      fetchAuctionData();
+    } catch (err) {
+      alert(err.message || 'Failed to reject winning bid.');
+    } finally {
+      setTxActionLoading(false);
+    }
+  };
+
+  const handleConfirmHandover = async (txId) => {
+    const notes = window.prompt(
+      'Confirm campus handover: Any notes on item condition or physical exchange?',
+      'Item handed over and verified in good condition'
+    );
+    if (notes === null) return;
+
+    try {
+      setTxActionLoading(true);
+      await api.confirmHandover(txId, notes);
+      alert('Campus handover confirmed! Transaction marked as fully completed.');
+      fetchAuctionData();
+    } catch (err) {
+      alert(err.message || 'Failed to confirm handover.');
+    } finally {
+      setTxActionLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="details-container" style={{ padding: '6rem 0', display: 'flex', justifyContent: 'center' }}>
@@ -266,17 +353,28 @@ export default function AuctionDetails() {
     );
   }
 
+  // Format closing date & time nicely
+  const closingDateFormatted = auction.closingAt
+    ? new Date(auction.closingAt).toLocaleString('en-IN', {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+      })
+    : 'Not specified';
+
+  // Determine if Transaction Section is relevant
+  const hasTransactionOrEnded = !!transaction || isClosed || auction.status !== 'active';
+
   return (
     <div className="details-page">
       <div className="details-container">
-        {/* Breadcrumb Navigation */}
+        {/* Breadcrumb Navigation & Actions */}
         <div className="details-nav-row">
           <Link to="/" className="btn-back">
             <ArrowLeft size={16} /> Back to Browse
           </Link>
 
           <div className="details-top-actions">
-            {isSeller && (
+            {isSeller && auction.status === 'active' && (!auction.bidsCount || auction.bidsCount === 0) && (
               <Link
                 to={`/edit-listing/${auction.id}`}
                 className="btn-action-icon"
@@ -309,60 +407,127 @@ export default function AuctionDetails() {
           </div>
         </div>
 
-        {/* Main Grid: Left Media & Info, Right Bidding Panel */}
+        {/* 2-Column Responsive Layout */}
         <div className="details-layout-grid">
-          {/* Left Column: Image, Details, Specs, Questions */}
+          {/* ======================================================== */}
+          {/* LEFT COLUMN: SECTION 1 (Item & Seller Information) & Q&A */}
+          {/* ======================================================== */}
           <div className="details-main-col">
-            {/* Image Preview Box */}
-            <div className="details-media-card">
-              <img
-                src={auction.imageUrl}
-                alt={auction.title}
-                className="details-main-img"
-              />
-              <div className="media-overlay-tags">
-                <span className="badge-condition-lg">{auction.condition}</span>
-                <StatusBadge status={auction.status} />
-              </div>
-            </div>
-
-            {/* Description Section */}
-            <section className="details-section">
-              <h1 className="auction-main-title">{auction.title}</h1>
-              <div className="auction-category-chip">
-                <span>Category:</span>
-                <strong>{auction.category}</strong>
+            {/* SECTION 1: Item and Seller Information */}
+            <section className="section-block item-seller-section">
+              <div className="section-badge-header">
+                <div className="section-badge-title">
+                  <span className="section-num-tag">1</span>
+                  <h3>Item and Seller Information</h3>
+                </div>
+                {isSeller ? (
+                  <span className="role-tag-badge seller-badge">
+                    <Sparkles size={12} /> Your Listing
+                  </span>
+                ) : (
+                  <span className="role-tag-badge bidder-badge">
+                    Seller: <strong className="role-tag-name">{resolvedSellerName}</strong>
+                  </span>
+                )}
               </div>
 
+              {/* Media gallery / main image */}
+              <div className="details-media-card">
+                <img
+                  src={activeImgUrl || auction.imageUrl}
+                  alt={auction.title}
+                  className="details-main-img"
+                  onError={(e) => {
+                    e.target.src = 'https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?auto=format&fit=crop&w=800&q=80';
+                  }}
+                />
+                <div className="media-overlay-tags">
+                  <span className="badge-condition-lg">{auction.condition}</span>
+                  <StatusBadge status={auction.status} />
+                </div>
+              </div>
+
+              {/* Additional thumbnails if multiple images uploaded */}
+              {auction.imageUrls && auction.imageUrls.length > 1 && (
+                <div className="thumbnail-strip">
+                  {auction.imageUrls.map((img, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      className={`thumbnail-btn ${activeImgUrl === img ? 'active' : ''}`}
+                      onClick={() => setActiveImgUrl(img)}
+                    >
+                      <img src={img} alt={`Preview ${idx + 1}`} />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Title & Key Meta */}
+              <div className="item-title-block">
+                <h1 className="auction-main-title">{auction.title}</h1>
+                <div className="auction-category-chip">
+                  <span>Category:</span>
+                  <strong>{auction.category}</strong>
+                </div>
+              </div>
+
+              {/* Description & Condition */}
               <div className="description-content">
-                <h3>About This Item</h3>
+                <h4>Description & Condition</h4>
                 <p>{auction.description}</p>
               </div>
 
+              {/* Item Specs Grid: Starting Price, Closing Time, Pickup Spot */}
               <div className="item-specs-grid">
+                <div className="spec-card">
+                  <span className="spec-label">Starting Price</span>
+                  <strong className="spec-val price-accent">₹{auction.startingPrice.toLocaleString('en-IN')}</strong>
+                </div>
                 <div className="spec-card">
                   <span className="spec-label">Condition</span>
                   <strong className="spec-val">{auction.condition}</strong>
                 </div>
                 <div className="spec-card">
-                  <span className="spec-label">Starting Price</span>
-                  <strong className="spec-val">₹{auction.startingPrice.toLocaleString('en-IN')}</strong>
-                </div>
-                <div className="spec-card">
-                  <span className="spec-label">Min Increment</span>
-                  <strong className="spec-val">+₹{auction.minIncrement.toLocaleString('en-IN')}</strong>
-                </div>
-                <div className="spec-card">
-                  <span className="spec-label">Handover Point</span>
-                  <strong className="spec-val spec-location">
-                    <MapPin size={14} /> {auction.pickupLocation}
+                  <span className="spec-label">Auction Closing Date & Time</span>
+                  <strong className="spec-val spec-closing-time">
+                    <Calendar size={13} /> {closingDateFormatted}
                   </strong>
+                </div>
+                <div className="spec-card">
+                  <span className="spec-label">Campus Handover Location</span>
+                  <strong className="spec-val spec-location">
+                    <MapPin size={13} /> {auction.pickupLocation}
+                  </strong>
+                </div>
+              </div>
+
+              {/* Isolated Seller Profile Card */}
+              <div className="seller-profile-subcard">
+                <div className="seller-header">
+                  <div className="seller-avatar">
+                    {resolvedSellerName.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="seller-meta">
+                    <span className="seller-card-badge-label">
+                      {isSeller ? 'Your Listing Account' : 'Listing Seller'}
+                    </span>
+                    <h4>{isSeller ? `${resolvedSellerName} (You)` : resolvedSellerName}</h4>
+                    <p>
+                      {resolvedSellerDept && <span>{resolvedSellerDept} &bull; </span>}
+                      {resolvedSellerRoll ? `Roll: ${resolvedSellerRoll}` : 'Verified Student'}
+                    </p>
+                  </div>
+                </div>
+                <div className="seller-badge-row">
+                  <span className="trust-pill">Verified Student</span>
+                  <span className="rating-pill">⭐ {auction.seller?.rating || '4.9'} rating</span>
                 </div>
               </div>
             </section>
 
             {/* Public Questions & Answers Section */}
-            <section className="details-section">
+            <section className="section-block questions-section">
               <div className="section-title-row">
                 <div className="title-with-icon">
                   <MessageSquare size={18} />
@@ -374,19 +539,19 @@ export default function AuctionDetails() {
               {/* Ask Question Form */}
               <form onSubmit={handleAskQuestion} className="ask-question-form">
                 <label htmlFor="student-question" className="form-label">
-                  Ask the seller about condition, accessories or pickup time:
+                  Ask about item condition, accessories, or pickup time:
                 </label>
                 <div className="question-input-row">
                   <input
                     id="student-question"
                     type="text"
                     className="form-input"
-                    placeholder="e.g. Does this cycle come with an extra lock?"
+                    placeholder="e.g. Does this textbook include all solved question papers?"
                     value={newQuestion}
                     onChange={(e) => setNewQuestion(e.target.value)}
                   />
-                  <button type="submit" className="btn btn-primary" disabled={!newQuestion.trim()}>
-                    Ask
+                  <button type="submit" className="btn btn-primary" disabled={!newQuestion.trim() || askingQuestion}>
+                    {askingQuestion ? 'Submitting...' : 'Ask'}
                   </button>
                 </div>
               </form>
@@ -422,26 +587,71 @@ export default function AuctionDetails() {
             </section>
           </div>
 
-          {/* Right Column: Bidding Action & Bid History */}
+          {/* ======================================================== */}
+          {/* RIGHT COLUMN: SECTION 2 (Bidding) & SECTION 3 (Transaction) */}
+          {/* ======================================================== */}
           <div className="details-side-col">
-            {/* Live Bidding Box */}
-            <div className="side-card bidding-card">
-              <div className="bidding-header">
-                <div className="current-price-group">
-                  <span className="label-sm">Current Leading Price</span>
-                  <div className="price-huge">₹{(auction.currentPrice || 0).toLocaleString('en-IN')}</div>
-                  <span className="starting-subtext">Started at ₹{(auction.startingPrice || 0).toLocaleString('en-IN')}</span>
+            {/* SECTION 2: Bidding Information */}
+            <section className="section-block bidding-info-section">
+              <div className="section-badge-header">
+                <div className="section-badge-title">
+                  <span className="section-num-tag">2</span>
+                  <h3>Bidding Information</h3>
+                </div>
+                {/* Role-appropriate indicator */}
+                {isSeller ? (
+                  <span className="role-tag-badge seller-badge">
+                    Your Listing Bids ({auction.bidsCount || 0})
+                  </span>
+                ) : isWinningBidder ? (
+                  <span className="role-tag-badge winner-badge">
+                    Your Winning Status: <strong>Highest Bidder</strong>
+                  </span>
+                ) : myHighestBid ? (
+                  <span className="role-tag-badge outbid-badge">
+                    Your Bid: ₹{myHighestBid.toLocaleString('en-IN')} (Outbid)
+                  </span>
+                ) : (
+                  <span className="role-tag-badge bidder-badge">
+                    Bidder View
+                  </span>
+                )}
+              </div>
+
+              {/* Price & Leading Bidder Hero Box */}
+              <div className="bidding-hero-box">
+                <div className="bidding-header-top">
+                  <div className="current-price-group">
+                    <span className="label-sm">Current Highest Bid</span>
+                    <div className="price-huge">₹{(auction.currentPrice || 0).toLocaleString('en-IN')}</div>
+                    <span className="starting-subtext">Starting price: ₹{(auction.startingPrice || 0).toLocaleString('en-IN')}</span>
+                  </div>
+
+                  <div className="countdown-container">
+                    <span className="label-sm">Auction Closing</span>
+                    <CountdownBadge
+                      closingAt={auction.closingAt}
+                      size="large"
+                      onExpire={() => {
+                        setAuction((prev) => (prev ? { ...prev, status: prev.bidsCount > 0 ? 'pending_approval' : 'unsold' } : prev));
+                      }}
+                    />
+                  </div>
                 </div>
 
-                <div className="countdown-container">
-                  <span className="label-sm">Auction Closes In</span>
-                  <CountdownBadge
-                    closingAt={auction.closingAt}
-                    size="large"
-                    onExpire={() => {
-                      setAuction((prev) => (prev ? { ...prev, status: prev.bidsCount > 0 ? 'pending_approval' : 'unsold' } : prev));
-                    }}
-                  />
+                {/* Highest Bidder Display */}
+                <div className="highest-bidder-pill-row">
+                  <User size={15} className="bidder-badge-icon" />
+                  <div className="highest-bidder-text-group">
+                    <span className="highest-bidder-label">Highest Bidder:</span>
+                    {auction.bidsCount > 0 && resolvedBidderName ? (
+                      <strong className="highest-bidder-name-highlight">
+                        {isWinningBidder ? `${resolvedBidderName} (You)` : resolvedBidderName}
+                      </strong>
+                    ) : (
+                      <span className="details-no-bids">No bids yet</span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -454,88 +664,48 @@ export default function AuctionDetails() {
               </div>
 
               {extensionNotice && (
-                <div style={{
-                  background: 'rgba(234, 179, 8, 0.15)',
-                  border: '1px solid #eab308',
-                  color: '#ca8a04',
-                  padding: '0.75rem 1rem',
-                  borderRadius: '8px',
-                  marginBottom: '1rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  fontSize: '0.875rem',
-                  fontWeight: 600,
-                  animation: 'pulse 1.5s infinite'
-                }}>
+                <div className="extension-notice-banner">
                   <Clock size={16} /> {extensionNotice}
                 </div>
               )}
 
-              {/* Place Bid Form */}
-              <form onSubmit={handleBidSubmit} className="bid-form">
+              {/* Role-Specific Bid Actions */}
+              <div className="bidding-action-container">
                 {bidSuccess && (
-                  <div style={{
-                    background: 'rgba(34, 197, 94, 0.1)',
-                    border: '1px solid rgba(34, 197, 94, 0.3)',
-                    color: '#22c55e',
-                    padding: '0.75rem 1rem',
-                    borderRadius: '8px',
-                    marginBottom: '1rem',
-                    fontSize: '0.875rem'
-                  }}>
-                    {bidSuccess}
+                  <div className="bid-alert-success">
+                    <CheckCircle size={16} /> {bidSuccess}
                   </div>
                 )}
 
                 {isSeller ? (
-                  <div style={{
-                    background: 'rgba(234, 179, 8, 0.1)',
-                    border: '1px solid rgba(234, 179, 8, 0.3)',
-                    color: '#eab308',
-                    padding: '0.85rem',
-                    borderRadius: '8px',
-                    fontSize: '0.875rem',
-                    marginBottom: '1rem'
-                  }}>
-                    <strong>Seller Notice:</strong> You are the seller of this auction and cannot place bids on it.
+                  <div className="seller-notice-box">
+                    <Sparkles size={16} />
+                    <div>
+                      <strong>Your Listing (Seller View):</strong>
+                      <p>Sellers are not permitted to bid on their own items. Monitor live bids below.</p>
+                    </div>
                   </div>
                 ) : isClosed ? (
-                  <div style={{
-                    background: auction.status === 'unsold' ? 'rgba(100, 116, 139, 0.1)' : 'rgba(99, 102, 241, 0.1)',
-                    border: `1px solid ${auction.status === 'unsold' ? 'rgba(100, 116, 139, 0.3)' : 'rgba(99, 102, 241, 0.3)'}`,
-                    color: auction.status === 'unsold' ? 'var(--color-text-secondary, #94a3b8)' : 'var(--color-primary, #6366f1)',
-                    padding: '1rem',
-                    borderRadius: '8px',
-                    fontSize: '0.875rem',
-                    marginBottom: '1rem',
-                    lineHeight: '1.5'
-                  }}>
+                  <div className="auction-closed-notice-box">
                     {auction.status === 'unsold' ? (
-                      <>
-                        <strong>Auction Ended (Unsold):</strong> No qualifying bids were submitted before the closing deadline.
-                      </>
-                    ) : auction.status === 'completed' ? (
-                      <>
-                        <strong>Auction Completed:</strong> Sold to <strong>{auction.provisionalWinnerMasked || auction.highestBidderMasked}</strong> for <strong>₹{(auction.winningAmount || auction.currentPrice)?.toLocaleString('en-IN')}</strong>. Campus handover finished.
-                      </>
+                      <div>
+                        <strong>Auction Closed (Unsold):</strong> No qualifying bids were placed.
+                      </div>
                     ) : (
-                      <>
-                        <strong>Auction Closed — Provisional Winner:</strong>{' '}
-                        <span>{auction.provisionalWinnerMasked || auction.highestBidderMasked || 'Leading Student'}</span> with highest valid bid of{' '}
-                        <strong>₹{(auction.winningAmount || auction.currentPrice)?.toLocaleString('en-IN')}</strong>. Awaiting seller approval.
-                      </>
+                      <div>
+                        <strong>Auction Closed:</strong> Bidding is concluded.
+                      </div>
                     )}
                   </div>
                 ) : (
-                  <>
+                  <form onSubmit={handleBidSubmit} className="bid-form">
                     <div className="form-group">
                       <div className="bid-label-row">
                         <label htmlFor="bid-input" className="form-label">
                           Your Maximum Bid (₹)
                         </label>
                         <span className="min-bid-hint">
-                          Min next: <strong>₹{minNextBid.toLocaleString('en-IN')}</strong>
+                          Minimum next bid: <strong>₹{minNextBid.toLocaleString('en-IN')}</strong>
                         </span>
                       </div>
 
@@ -556,7 +726,7 @@ export default function AuctionDetails() {
                       {bidError && <p className="form-error-msg">{bidError}</p>}
                     </div>
 
-                    {/* Quick Increment Buttons */}
+                    {/* Quick increment chips */}
                     <div className="quick-bid-buttons">
                       <button
                         type="button"
@@ -564,7 +734,7 @@ export default function AuctionDetails() {
                         onClick={() => setBidAmount(minNextBid.toString())}
                         disabled={placingBid}
                       >
-                        Opening / Min (₹{minNextBid})
+                        Min Valid (₹{minNextBid})
                       </button>
                       <button
                         type="button"
@@ -593,73 +763,231 @@ export default function AuctionDetails() {
                     </button>
 
                     <p className="bidding-terms-note">
-                      By bidding, you commit to purchasing at this price if you are the provisional winner and the seller approves.
+                      By submitting a bid, you commit to purchase at this price if you are the provisional winner and the seller approves.
                     </p>
-                  </>
+                  </form>
                 )}
-              </form>
-            </div>
-
-            {/* Seller Info Card */}
-            <div className="side-card seller-card">
-              <div className="seller-header">
-                <div className="seller-avatar">
-                  {auction.seller?.name ? auction.seller.name.charAt(0).toUpperCase() : 'S'}
-                </div>
-                <div className="seller-meta">
-                  <h4>{auction.seller?.name || 'Campus Student'}</h4>
-                  <p>{auction.seller?.department || 'Student'} &bull; {auction.seller?.rollNumber || auction.seller?.batch || 'Senior'}</p>
-                </div>
-              </div>
-              <div className="seller-badge-row">
-                <span className="trust-pill">Verified Student</span>
-                <span className="rating-pill">⭐ {auction.seller?.rating || '4.9'} rating</span>
-              </div>
-              <div className="handover-notice">
-                <MapPin size={16} />
-                <div>
-                  <strong>Pickup Point:</strong>
-                  <p>{auction.pickupLocation || 'Campus Quad / Hostel'}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Public Bid History Section */}
-            <div className="side-card history-card">
-              <div className="history-header">
-                <div className="title-with-icon">
-                  <History size={16} />
-                  <h4>Public Bid History ({bidHistory.length})</h4>
-                </div>
-                <span className="history-hint">Privacy Protected</span>
               </div>
 
-              <div className="bid-history-list">
-                {bidHistory && bidHistory.length > 0 ? (
-                  bidHistory.map((bid, index) => (
-                    <div
-                      key={bid.id || bid._id || index}
-                      className={`bid-history-row ${index === 0 ? 'leading-bid' : ''}`}
-                    >
-                      <div className="bidder-info">
-                        <span className="bidder-masked">{bid.bidderMasked || 'Student ***'}</span>
-                        {index === 0 && (
-                          <span className="winning-badge">Leading</span>
-                        )}
-                      </div>
-                      <div className="bid-figures">
-                        <strong className="bid-price">₹{(bid.amount || 0).toLocaleString('en-IN')}</strong>
-                        <span className="bid-time">
-                          {bid.createdAt ? new Date(bid.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently'}
+              {/* Bid History Table (Bidder Name, Bid Amount, Bid Time) */}
+              <div className="bid-history-container">
+                <div className="history-header">
+                  <div className="title-with-icon">
+                    <History size={16} />
+                    <h4>Bid History ({bidHistory.length})</h4>
+                  </div>
+                  <span className="history-hint">Student Bids</span>
+                </div>
+
+                <div className="bid-history-table-wrapper">
+                  {bidHistory && bidHistory.length > 0 ? (
+                    <div className="bid-history-list">
+                      {bidHistory.map((bid, index) => {
+                        const isThisBidder = currentUser && (
+                          (bid.bidder?._id === currentUser.id || bid.bidder?.id === currentUser.id || bid.bidder === currentUser.id) ||
+                          bid.bidderName === currentUser.name
+                        );
+                        const displayName = bid.bidderName || bid.bidderMasked || 'Student';
+
+                        return (
+                          <div
+                            key={bid.id || bid._id || index}
+                            className={`bid-history-row ${index === 0 ? 'leading-bid' : ''}`}
+                          >
+                            <div className="bidder-info">
+                              <span className="bidder-name-cell">
+                                {displayName} {isThisBidder && <strong className="you-pill">(You)</strong>}
+                              </span>
+                              {index === 0 && (
+                                <span className="winning-badge">Highest</span>
+                              )}
+                            </div>
+                            <div className="bid-figures">
+                              <strong className="bid-price">₹{(bid.amount || 0).toLocaleString('en-IN')}</strong>
+                              <span className="bid-time">
+                                {bid.createdAt
+                                  ? new Date(bid.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                  : 'Recently'}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="no-bids-yet">No bids placed yet. Submit the opening bid at starting price!</p>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            {/* ======================================================== */}
+            {/* SECTION 3: Transaction Information */}
+            {/* ======================================================== */}
+            {hasTransactionOrEnded && (
+              <section className="section-block transaction-info-section">
+                <div className="section-badge-header">
+                  <div className="section-badge-title">
+                    <span className="section-num-tag">3</span>
+                    <h3>Transaction Information</h3>
+                  </div>
+                  <span className="role-tag-badge transaction-badge">
+                    {transaction ? `Status: ${transaction.status}` : 'Outcome Pending'}
+                  </span>
+                </div>
+
+                <div className="transaction-details-box">
+                  {/* Winning Bidder */}
+                  <div className="tx-info-row">
+                    <span className="tx-label">
+                      {isSeller ? 'Winning Bidder' : isWinningBidder ? 'Your Winning Status' : 'Winning Bidder'}
+                    </span>
+                    <strong className="tx-val winner-name">
+                      {transaction?.buyerName ||
+                        transaction?.buyer?.name ||
+                        auction.provisionalWinnerName ||
+                        resolvedBidderName ||
+                        'None'}
+                      {isWinningBidder ? ' (Provisional Winner — You)' : ''}
+                    </strong>
+                  </div>
+
+                  {/* Agreed / Winning Amount */}
+                  <div className="tx-info-row">
+                    <span className="tx-label">Winning Price</span>
+                    <strong className="tx-val price-highlight">
+                      ₹{(transaction?.finalPrice || auction.winningAmount || auction.currentPrice || 0).toLocaleString('en-IN')}
+                    </strong>
+                  </div>
+
+                  {/* Seller Approval Status */}
+                  <div className="tx-info-row">
+                    <span className="tx-label">Seller Approval Status</span>
+                    <div className="tx-val">
+                      {transaction?.status === 'approved' ? (
+                        <span className="status-pill-tx approved">
+                          <CheckCircle size={13} /> Approved by Seller (Item Reserved)
                         </span>
+                      ) : transaction?.status === 'rejected' ? (
+                        <span className="status-pill-tx rejected">
+                          <XCircle size={13} /> Rejected by Seller
+                        </span>
+                      ) : transaction?.status === 'pending_seller_approval' ? (
+                        <span className="status-pill-tx pending">
+                          <Clock size={13} /> {isSeller ? 'Awaiting Your Approval' : 'Pending Seller Decision'}
+                        </span>
+                      ) : auction.status === 'unsold' ? (
+                        <span className="status-pill-tx unsold">
+                          Auction Unsold
+                        </span>
+                      ) : (
+                        <span className="status-pill-tx pending">
+                          {isSeller ? 'Pending Decision' : 'Pending Approval'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Payment Method & Payment Status */}
+                  <div className="tx-info-row">
+                    <span className="tx-label">Payment Method & Status</span>
+                    <div className="tx-val">
+                      {transaction?.payment?.status === 'PAID' ? (
+                        <span className="payment-pill paid">
+                          <CheckCircle size={13} /> PAID ({transaction.payment.method || 'Verified'})
+                        </span>
+                      ) : transaction?.payment?.method ? (
+                        <span className="payment-pill pending">
+                          <Clock size={13} /> PENDING ({transaction.payment.method === 'COD' ? 'Cash on Delivery' : 'UPI'})
+                        </span>
+                      ) : (
+                        <span className="payment-pill unselected">
+                          Awaiting Payment Selection
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Campus Handover Status */}
+                  <div className="tx-info-row">
+                    <span className="tx-label">Campus Handover Status</span>
+                    <div className="tx-val">
+                      {transaction?.status === 'completed' ? (
+                        <span className="handover-pill completed">
+                          <CheckCircle size={13} /> Handover Completed at {transaction.pickupLocation}
+                        </span>
+                      ) : transaction?.status === 'failed_pickup' ? (
+                        <span className="handover-pill failed">
+                          <XCircle size={13} /> Handover Failed / Cancelled
+                        </span>
+                      ) : transaction?.status === 'approved' ? (
+                        <span className="handover-pill reserved">
+                          <Handshake size={13} /> Reserved for Campus Handover at {transaction.pickupLocation}
+                        </span>
+                      ) : (
+                        <span className="handover-pill pending">
+                          Scheduled at {auction.pickupLocation}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Role-Based Transaction Actions */}
+                  {/* Seller Approval Actions */}
+                  {isSeller && transaction?.status === 'pending_seller_approval' && (
+                    <div className="tx-action-bar">
+                      <p className="tx-action-notice">
+                        <strong>Approval Action Needed:</strong> Please accept or reject the provisional winning price.
+                      </p>
+                      <div className="tx-btn-group">
+                        <button
+                          className="btn-reject-sale"
+                          onClick={() => handleRejectSale(transaction.id || transaction._id)}
+                          disabled={txActionLoading}
+                        >
+                          <X size={15} /> Reject Bid
+                        </button>
+                        <button
+                          className="btn-approve-sale"
+                          onClick={() => handleApproveSale(transaction.id || transaction._id)}
+                          disabled={txActionLoading}
+                        >
+                          <Check size={15} /> Approve & Reserve
+                        </button>
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <p className="no-bids-yet">No bids placed yet. Place the opening bid at starting price!</p>
-                )}
-              </div>
-            </div>
+                  )}
+
+                  {/* Buyer Payment Action */}
+                  {isWinningBidder && transaction?.status === 'approved' && transaction?.payment?.status !== 'PAID' && (
+                    <div className="tx-action-bar">
+                      <p className="tx-action-notice">
+                        <strong>Seller Approved:</strong> Item is reserved! Choose Cash on Delivery (COD) or Instant UPI to confirm.
+                      </p>
+                      <Link
+                        to={`/payment/${transaction.id || transaction._id}`}
+                        className="btn btn-primary btn-confirm-payment-link"
+                      >
+                        <CreditCard size={15} /> Confirm Payment
+                      </Link>
+                    </div>
+                  )}
+
+                  {/* Handover Confirmation Action (Seller or Buyer) */}
+                  {(isSeller || isWinningBidder) && transaction?.status === 'approved' && (
+                    <div className="tx-action-bar" style={{ marginTop: '0.75rem' }}>
+                      <button
+                        className="btn btn-confirm-handover-action"
+                        onClick={() => handleConfirmHandover(transaction.id || transaction._id)}
+                        disabled={txActionLoading}
+                      >
+                        <Handshake size={15} /> Confirm Campus Handover Exchange
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
           </div>
         </div>
       </div>

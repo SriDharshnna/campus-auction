@@ -69,6 +69,7 @@ export async function closeAuctionIfDue(auctionId) {
       winningAmount: targetWinningAmount,
       provisionalWinner: targetWinnerId,
       provisionalWinnerName: targetWinnerName,
+      highestBidderName: targetWinnerName || auction.highestBidderName,
       provisionalWinnerMasked: targetWinnerMasked
     }
   };
